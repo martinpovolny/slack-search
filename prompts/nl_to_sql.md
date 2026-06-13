@@ -75,6 +75,10 @@ WHERE text LIKE '%<@U...>%'
 
 -- Last N days
 WHERE timestamp > unixepoch('now', '-N days')
+
+-- Finding a user by name (always search all name fields with LIKE, never exact-match a single field)
+-- Example for "Luke":
+WHERE (u.name LIKE '%luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')
 ```
 
 ## Your task
@@ -93,6 +97,9 @@ Rules:
 - Default `LIMIT 50` unless the user asks for more or an aggregate makes limits unnecessary.
 - If the question cannot be answered with the available data, say so clearly and briefly.
 - Do not invent columns or tables that are not in the schema.
+- When filtering by a person's name, always match across all three user name fields with case-insensitive LIKE:
+  `(u.name LIKE '%name%' OR u.real_name LIKE '%name%' OR u.display_name LIKE '%name%')`
+  Never use exact equality (`=`) on a single name field for user lookups.
 
 ## Response modes
 
