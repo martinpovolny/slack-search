@@ -397,6 +397,8 @@ def eval_cmd(
               help="Filter by sender name (partial match)")
 @click.option("-n", "--limit", default=200, show_default=True,
               help="Maximum number of results")
+@click.option("-P", "--pager", is_flag=True, default=False,
+              help="Page output through 'less -R' with colours preserved")
 @click.pass_context
 def grep_cmd(
     ctx: click.Context,
@@ -407,6 +409,7 @@ def grep_cmd(
     until: Optional[str],
     person: Optional[str],
     limit: int,
+    pager: bool,
 ) -> None:
     """Search messages by string (-F) or regular expression (-E).
 
@@ -415,9 +418,11 @@ def grep_cmd(
       slack-search grep -F "out of memory"
       slack-search grep -E "error|warning" --channel cost-mgmt-dev --since "last week"
       slack-search grep -F "budget" --person Martin --since 2024-01-01 --until 2024-02-01
+      slack-search grep -E "OCP|provider_uuid" -P   # page with colours
     """
     import re as _re
     from rich.text import Text
+    from rich.console import Console as _Console
 
     if not fixed_string and not pattern:
         raise click.UsageError("Provide -F/--string or -E/--regexp.")
@@ -461,14 +466,21 @@ def grep_cmd(
         t.append(text[last:])
         return t
 
-    console.print(f"[dim]{len(results)} match(es)[/]\n")
-    for row in results:
-        thread_mark = " [dim]↳[/]" if row["thread_ts"] and row["thread_ts"] != row["ts"] else ""
-        console.print(
-            f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]{thread_mark}"
-        )
-        console.print(highlight(row["text"] or ""))
-        console.print()
+    def render(out: _Console) -> None:
+        out.print(f"[dim]{len(results)} match(es)[/]\n")
+        for row in results:
+            thread_mark = " [dim]↳[/]" if row["thread_ts"] and row["thread_ts"] != row["ts"] else ""
+            out.print(
+                f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]{thread_mark}"
+            )
+            out.print(highlight(row["text"] or ""))
+            out.print()
+
+    if pager:
+        with console.pager(styles=True):
+            render(console)
+    else:
+        render(console)
 
 
 # Aliases

@@ -101,7 +101,7 @@ uv run slack-search grep -F "out of memory"
 
 # Regex across two channels, last two weeks
 uv run slack-search grep -E "error|warning" \
-  --channel cost-mgmt-dev --channel engineering \
+  --channel cost-mgmt-dev --channel forum-cost-mgmt \
   --since "2 weeks ago"
 
 # Messages from a specific person in a date range
@@ -109,11 +109,20 @@ uv run slack-search grep -F "budget" \
   --person Martin \
   --since 2024-01-01 --until 2024-02-01
 
-# Thread replies mentioning a pattern
+# Pattern search in a single channel
 uv run slack-search grep -E "OCP|provider_uuid" --channel forum-cost-mgmt
+
+# All messages from someone in the cost team chat
+uv run slack-search grep -E ".*" --channel cost-team-chat --person David
 ```
 
 Matches are highlighted in the output. The `-c/--channel` flag can be repeated for multiple channels. `-p/--person` does a partial, case-insensitive match against all name fields.
+
+Add `-P` / `--pager` to page through results with colours preserved (equivalent to `| less -R` but without losing the highlighting):
+
+```bash
+uv run slack-search grep -E "error|warning" --channel cost-mgmt-dev -P
+```
 
 ## LLM providers
 
