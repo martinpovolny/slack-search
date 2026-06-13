@@ -9,7 +9,7 @@ from rich.console import Console
 from .database import open_db
 from .downloader import download
 from .search import run_sql, show_schema
-from .ai_query import ask
+from .ai_query import ask, load_rht_config
 from .curl_parser import parse_curl
 
 console = Console()
@@ -214,6 +214,11 @@ def schema(ctx: click.Context) -> None:
     default="local",
     help="API key (use 'local' for Ollama)",
 )
+@click.option(
+    "--rht-model",
+    default=None,
+    help="Use a RHT models.corp model by name (reads URL/key from .rht_models.json).",
+)
 @click.pass_context
 def nlq(
     ctx: click.Context,
@@ -221,9 +226,12 @@ def nlq(
     llm_url: str,
     llm_model: str,
     llm_api_key: str,
+    rht_model: str,
 ) -> None:
     """Ask a natural language question about your Slack archive."""
     conn = ctx.obj["db"]
+    if rht_model:
+        llm_url, llm_api_key, llm_model = load_rht_config(rht_model)
     ask(conn, question, base_url=llm_url, model=llm_model, api_key=llm_api_key)
 
 
