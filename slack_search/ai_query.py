@@ -47,9 +47,10 @@ def load_rht_config(model_name: str) -> tuple[str, str, str]:
     if model_name not in models:
         available = ", ".join(models.keys())
         raise ValueError(f"Unknown RHT model '{model_name}'. Available: {available}")
+    entry = models[model_name]
     base_url = template.format(model=model_name)
-    api_key = models[model_name]
-    api_model_id = f"/data/{model_name}"
+    api_key = entry["key"]
+    api_model_id = entry.get("api_model_id", model_name)
     return base_url, api_key, api_model_id
 
 

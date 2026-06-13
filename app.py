@@ -41,8 +41,8 @@ LM_STUDIO_BASE_URL = f"http://{LM_STUDIO_HOST}:{LM_STUDIO_PORT}/v1"
 RHT_MODELS_FILE = Path(__file__).parent / ".rht_models.json"
 
 
-def _load_rht_models() -> tuple[str, dict[str, str]]:
-    """Return (url_template, {model_name: api_key}) from .rht_models.json, or empty if missing."""
+def _load_rht_models() -> tuple[str, dict]:
+    """Return (url_template, models_dict) from .rht_models.json, or empty if missing."""
     if not RHT_MODELS_FILE.exists():
         return "", {}
     data = json.loads(RHT_MODELS_FILE.read_text())
@@ -88,7 +88,9 @@ def _extract_sql(text: str) -> str | None:
 def api_model_id(provider: str, model: str) -> str:
     """Return the model string expected by the API (may differ from display name)."""
     if provider == "RHT models.corp":
-        return f"/data/{model}"
+        _, models = _load_rht_models()
+        entry = models.get(model, {})
+        return entry.get("api_model_id", model)
     return model
 
 
@@ -111,9 +113,9 @@ def make_client(provider: str, model: str = "") -> OpenAI:
     if provider == "LM Studio (local)":
         return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL, **kwargs)
     if provider == "RHT models.corp":
-        url_template, model_keys = _load_rht_models()
+        url_template, models = _load_rht_models()
         base_url = url_template.format(model=model)
-        api_key = model_keys.get(model, "")
+        api_key = models.get(model, {}).get("key", "")
         return OpenAI(api_key=api_key, base_url=base_url, **kwargs)
     raise ValueError(f"Unknown provider: {provider}")
 

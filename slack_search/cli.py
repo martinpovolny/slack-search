@@ -4,7 +4,10 @@ from pathlib import Path
 from typing import Optional
 
 import click
+from dotenv import load_dotenv
 from rich.console import Console
+
+load_dotenv()
 
 from .database import open_db
 from .downloader import download
