@@ -400,12 +400,13 @@ def render_nlq(
                             "You are a helpful assistant analysing Slack archive query results. "
                             "The SQL query was already run and the results below are the complete, "
                             "correct dataset for answering the question — trust them fully. "
-                            "Do not speculate about missing data, question the query, or caveat "
-                            "whether the right rows were returned. "
-                            "Answer the user's question directly and concisely based solely on "
-                            "the rows provided."
+                            "Use the SQL query to understand what the result rows represent "
+                            "(e.g. which user, channel, or time period was filtered). "
+                            "Do not speculate about missing data or caveat whether the right rows "
+                            "were returned. Answer the user's question directly and concisely."
                         )},
                         {"role": "user", "content": (
+                            f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
                             f"Query results:\n\n{results_text}\n\n"
                             f"Question: {prompt}"
                         )},
