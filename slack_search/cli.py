@@ -240,12 +240,14 @@ def nlq(
 
 
 @cli.command()
-@click.option("--rht-model", default=None, help="RHT model name (reads from .rht_models.json)")
+@click.option("--rht-model", default=None, help="RHT model name for query generation")
 @click.option("--llm-url", envvar="LLM_BASE_URL", default=DEFAULT_LLM_URL, help="LLM base URL")
 @click.option("--llm-model", envvar="LLM_MODEL", default=DEFAULT_LLM_MODEL, help="Model name")
 @click.option("--llm-api-key", envvar="LLM_API_KEY", default="local", help="API key")
 @click.option("--test-ids", default=None, help="Comma-separated list of test IDs to run (default: all)")
 @click.option("--no-judge", is_flag=True, default=False, help="Skip LLM judge, only run SQL checks")
+@click.option("--judge-opencode", is_flag=True, default=False, help="Use OpenCode.ai as the judge (default: same model)")
+@click.option("--judge-model", "judge_model_name", default=None, help="OpenCode model for judging (default: qwen3.6-plus)")
 @click.option("--prompt", default=None, type=click.Path(exists=True), help="Custom system prompt file")
 @click.pass_context
 def eval_cmd(
@@ -256,6 +258,8 @@ def eval_cmd(
     llm_api_key: str,
     test_ids: str,
     no_judge: bool,
+    judge_opencode: bool,
+    judge_model_name: str,
     prompt: str,
 ) -> None:
     """Run NL→SQL evaluation suite against a set of test cases."""
@@ -268,6 +272,24 @@ def eval_cmd(
 
     http = _http_client()
     client = _OpenAI(base_url=llm_url, api_key=llm_api_key, **({"http_client": http} if http else {}))
+
+    # Judge client — OpenCode.ai by default when --judge-opencode is set
+    if no_judge:
+        judge_client, judge_model = None, None
+    elif judge_opencode:
+        opencode_key = os.getenv("OPENCODE_API_KEY", "")
+        if not opencode_key:
+            raise click.UsageError("OPENCODE_API_KEY not set in .env")
+        judge_client = _OpenAI(
+            api_key=opencode_key,
+            base_url="https://opencode.ai/zen/go/v1",
+        )
+        judge_model = judge_model_name or "qwen3.6-plus"
+        print(f"Judge: OpenCode.ai / {judge_model}")
+    else:
+        judge_client = client
+        judge_model = llm_model
+
     conn = ctx.obj["db"]
     ids = [t.strip() for t in test_ids.split(",")] if test_ids else None
     prompt_path = _Path(prompt) if prompt else PROMPT_PATH
@@ -277,8 +299,8 @@ def eval_cmd(
         client=client,
         model=llm_model,
         test_ids=ids,
-        judge_client=None if no_judge else client,
-        judge_model=None if no_judge else llm_model,
+        judge_client=judge_client,
+        judge_model=judge_model,
         prompt_path=prompt_path,
     )
 
