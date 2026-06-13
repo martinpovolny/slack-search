@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from slack_search.database import open_db_readonly
+from slack_search.slack_format import build_user_map, extract_uids, resolve_mentions
 from slack_search.conversations_db import (
     CURRENT_USER,
     open_conversations_db,
@@ -151,10 +152,19 @@ def _cap_sql(sql: str) -> str:
     return f"SELECT * FROM ({sql.rstrip(';')}) _q LIMIT {MAX_LLM_ROWS}"
 
 
-def _results_to_text(df: pd.DataFrame) -> str:
+def _results_to_text(df: pd.DataFrame, conn: sqlite3.Connection | None = None) -> str:
     """Format a DataFrame as a compact markdown table for the LLM."""
     if df.empty:
         return "(no rows returned)"
+    if conn is not None:
+        text_cols = [c for c in df.columns if "text" in c.lower() or "message" in c.lower()]
+        if text_cols:
+            all_texts = [str(v) for col in text_cols for v in df[col] if v]
+            uids = extract_uids(all_texts)
+            user_map = build_user_map(conn, uids)
+            df = df.copy()
+            for col in text_cols:
+                df[col] = df[col].apply(lambda v: resolve_mentions(str(v), user_map) if v else v)
     header = " | ".join(str(c) for c in df.columns)
     sep = " | ".join("---" for _ in df.columns)
     rows = "\n".join(
@@ -347,7 +357,7 @@ def render_nlq(
         sql = pending["sql"]
         question = pending["question"]
         df = pending["df"]
-        results_text = _results_to_text(df)
+        results_text = _results_to_text(df, msg_conn)
         synthesis_msgs = [
             {"role": "system", "content": load_synthesis_prompt()},
             {"role": "user", "content": (
@@ -466,7 +476,7 @@ def render_nlq(
             try:
                 if synthesise:
                     df = pd.read_sql_query(_cap_sql(sql), msg_conn)
-                    results_text = _results_to_text(df)
+                    results_text = _results_to_text(df, msg_conn)
                     synthesis_msgs = [
                         {"role": "system", "content": load_synthesis_prompt()},
                         {"role": "user", "content": (
@@ -555,6 +565,12 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     """
     params.append(limit)
     df = pd.read_sql_query(sql, conn, params=params)
+
+    # Resolve <@UXXXXXXX> mentions to real names in the text column
+    if not df.empty:
+        uids = extract_uids(df["text"].tolist())
+        user_map = build_user_map(conn, uids)
+        df["text"] = df["text"].apply(lambda t: resolve_mentions(t or "", user_map))
 
     event = st.dataframe(
         df,

@@ -165,7 +165,7 @@ def run_query(
         return result
 
     # ── Phase 2: synthesise ──────────────────────────────────────────────────
-    rows_text = _df_to_markdown(result.df)
+    rows_text = _df_to_markdown(result.df, conn)
     from datetime import date as _date
     today_str = _date.today().strftime("%A, %Y-%m-%d")
     synthesis_system = SYNTHESIS_PROMPT_PATH.read_text().replace("{today}", today_str)
@@ -190,9 +190,20 @@ def run_query(
     return result
 
 
-def _df_to_markdown(df: pd.DataFrame) -> str:
+def _df_to_markdown(df: pd.DataFrame, conn: sqlite3.Connection | None = None) -> str:
     if df.empty:
         return "(no rows returned)"
+    # Resolve <@U…> mentions in text columns before sending to the LLM
+    if conn is not None:
+        from .slack_format import build_user_map, extract_uids, resolve_mentions
+        text_cols = [c for c in df.columns if "text" in c.lower() or "message" in c.lower()]
+        if text_cols:
+            all_texts = [str(v) for col in text_cols for v in df[col] if v]
+            uids = extract_uids(all_texts)
+            user_map = build_user_map(conn, uids)
+            for col in text_cols:
+                df = df.copy()
+                df[col] = df[col].apply(lambda v: resolve_mentions(str(v), user_map) if v else v)
     header = " | ".join(str(c) for c in df.columns)
     sep = " | ".join("---" for _ in df.columns)
     rows = "\n".join(" | ".join(str(v) for v in row) for row in df.itertuples(index=False))
