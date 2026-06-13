@@ -7,7 +7,7 @@ from typing import Optional
 
 import httpx
 import pandas as pd
-from openai import OpenAI
+from openai import OpenAI, APIConnectionError, APIStatusError
 
 from .search import run_sql
 
@@ -54,6 +54,27 @@ def load_rht_config(model_name: str) -> tuple[str, str, str]:
     return base_url, api_key, api_model_id
 
 
+def _connection_error(console, base_url: str, exc: Exception) -> None:
+    proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
+    console.print(f"\n[bold red]Connection error[/] — could not reach {base_url}")
+    inner = str(exc.__cause__ or exc)
+    if "Connection refused" in inner or "Errno 61" in inner:
+        if proxy:
+            console.print(f"  Proxy [yellow]{proxy}[/] is not reachable. Is the SSH tunnel running?")
+            console.print("  Run: [cyan]autossh -N -D 1080 -M 0 -o ServerAliveInterval=30 mpovolny@192.168.77.8[/]")
+        else:
+            console.print("  The server actively refused the connection. Check the URL and that the service is up.")
+    elif "nodename nor servname" in inner or "Name or service not known" in inner:
+        if proxy:
+            console.print(f"  DNS failed — the proxy [yellow]{proxy}[/] may be down or not routing DNS.")
+        else:
+            console.print("  Hostname could not be resolved. Set ALL_PROXY or check your network.")
+    elif "SSL" in inner or "certificate" in inner.lower():
+        console.print("  TLS error. Try setting [cyan]SSL_NO_VERIFY=true[/] in .env.")
+    else:
+        console.print(f"  {inner}")
+
+
 def _http_client() -> httpx.Client | None:
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
     verify = os.getenv("SSL_NO_VERIFY", "").lower() not in ("1", "true", "yes")
@@ -82,14 +103,21 @@ def ask(
     client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
 
     # ── Phase 1: NL → SQL ────────────────────────────────────────────────────
-    response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": _load_system_prompt()},
-            {"role": "user", "content": question},
-        ],
-        temperature=0,
-    )
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _load_system_prompt()},
+                {"role": "user", "content": question},
+            ],
+            temperature=0,
+        )
+    except APIConnectionError as e:
+        _connection_error(console, base_url, e)
+        return
+    except APIStatusError as e:
+        console.print(f"[red]API error {e.status_code}:[/] {e.message}")
+        return
 
     answer = response.choices[0].message.content
     synthesise = SYNTHESISE_MARKER in answer
@@ -123,7 +151,8 @@ def ask(
     if len(df) == MAX_LLM_ROWS:
         results_text += f"\n\n_(results capped at {MAX_LLM_ROWS} rows)_"
 
-    synthesis_response = client.chat.completions.create(
+    try:
+      synthesis_response = client.chat.completions.create(
         model=model,
         messages=[
             {"role": "system", "content": (
@@ -142,7 +171,13 @@ def ask(
             )},
         ],
         temperature=0,
-    )
+      )
+    except APIConnectionError as e:
+        _connection_error(console, base_url, e)
+        return
+    except APIStatusError as e:
+        console.print(f"[red]API error {e.status_code}:[/] {e.message}")
+        return
 
     nl_answer = synthesis_response.choices[0].message.content
     console.print("\n[bold cyan]Answer:[/]")
