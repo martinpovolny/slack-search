@@ -172,6 +172,7 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
                     label,
                     key=f"conv_{cid}",
                     use_container_width=True,
+                    help=f"id: {cid}",
                     type="primary" if is_active else "secondary",
                 ):
                     if not is_active:
@@ -351,7 +352,12 @@ def render_nlq(
                     synthesis_msgs = [
                         {"role": "system", "content": (
                             "You are a helpful assistant analysing Slack archive query results. "
-                            "Answer the user's question concisely based solely on the data provided."
+                            "The SQL query was already run and the results below are the complete, "
+                            "correct dataset for answering the question — trust them fully. "
+                            "Do not speculate about missing data, question the query, or caveat "
+                            "whether the right rows were returned. "
+                            "Answer the user's question directly and concisely based solely on "
+                            "the rows provided."
                         )},
                         {"role": "user", "content": (
                             f"Query results:\n\n{results_text}\n\n"
@@ -383,17 +389,18 @@ def render_nlq(
     stored_content = nl_answer if nl_answer else display_response
     append_message(conv_conn, cid, "assistant", stored_content, sql=sql)
 
-    # Generate title from the first exchange
-    if is_first_message:
-        title = _generate_title(client, model or OPENCODE_MODELS[0], prompt, stored_content)
-        rename_conversation(conv_conn, cid, title)
-
     record: dict = {"role": "assistant", "content": stored_content}
     if sql:
         record["sql"] = sql
     if df is not None:
         record["df"] = df
     messages.append(record)
+
+    # Generate title from the first exchange and rerun so the sidebar reflects it
+    if is_first_message:
+        title = _generate_title(client, model or OPENCODE_MODELS[0], prompt, stored_content)
+        rename_conversation(conv_conn, cid, title)
+        st.rerun()
 
 
 # ── Browse tab ────────────────────────────────────────────────────────────────
