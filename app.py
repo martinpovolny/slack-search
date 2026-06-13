@@ -40,11 +40,11 @@ RHT_MODELS_FILE = Path(__file__).parent / ".rht_models.json"
 
 
 def _load_rht_models() -> tuple[str, dict[str, str]]:
-    """Return (base_url, {model_name: api_key}) from .rht_models.json, or empty if missing."""
+    """Return (url_template, {model_name: api_key}) from .rht_models.json, or empty if missing."""
     if not RHT_MODELS_FILE.exists():
         return "", {}
     data = json.loads(RHT_MODELS_FILE.read_text())
-    return data.get("base_url", ""), data.get("models", {})
+    return data.get("url_template", ""), data.get("models", {})
 
 
 @st.cache_data(ttl=60)
@@ -83,13 +83,21 @@ def _extract_sql(text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+def api_model_id(provider: str, model: str) -> str:
+    """Return the model string expected by the API (may differ from display name)."""
+    if provider == "RHT models.corp":
+        return f"/data/{model}"
+    return model
+
+
 def make_client(provider: str, model: str = "") -> OpenAI:
     if provider == "OpenCode.ai":
         return OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL)
     if provider == "LM Studio (local)":
         return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL)
     if provider == "RHT models.corp":
-        base_url, model_keys = _load_rht_models()
+        url_template, model_keys = _load_rht_models()
+        base_url = url_template.format(model=model)
         api_key = model_keys.get(model, "")
         return OpenAI(api_key=api_key, base_url=base_url)
     raise ValueError(f"Unknown provider: {provider}")
@@ -335,12 +343,13 @@ def render_nlq(
 
     # Stream response
     client = make_client(provider, model)
+    effective_model = api_model_id(provider, model or OPENCODE_MODELS[0])
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_response = ""
         try:
             stream = client.chat.completions.create(
-                model=model or OPENCODE_MODELS[0],
+                model=effective_model,
                 messages=api_msgs,
                 temperature=0,
                 stream=True,
@@ -387,7 +396,7 @@ def render_nlq(
                     nl_placeholder = st.empty()
                     nl_answer = ""
                     stream2 = client.chat.completions.create(
-                        model=model or OPENCODE_MODELS[0],
+                        model=effective_model,
                         messages=synthesis_msgs,
                         temperature=0,
                         stream=True,
@@ -418,7 +427,7 @@ def render_nlq(
 
     # Generate title from the first exchange and rerun so the sidebar reflects it
     if is_first_message:
-        title = _generate_title(client, model or OPENCODE_MODELS[0], prompt, stored_content)
+        title = _generate_title(client, effective_model, prompt, stored_content)
         rename_conversation(conv_conn, cid, title)
         st.rerun()
 
