@@ -104,11 +104,19 @@ WHERE strftime('%Y-%m', timestamp, 'unixepoch') = strftime('%Y-%m', 'now')
 
 -- Specific named weekday — NEVER use the weekday modifier; use offset arithmetic instead.
 -- SQLite weekday numbers: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
--- "Last Monday" (target weekday = 1):
+-- Formula: date('now', '-' || ((cast(strftime('%w','now') as integer) + OFFSET) % 7) || ' days')
+-- OFFSET per target day (pick the right one!):
+--   last Sunday    OFFSET = 0
+--   last Monday    OFFSET = 6
+--   last Tuesday   OFFSET = 5
+--   last Wednesday OFFSET = 4
+--   last Thursday  OFFSET = 3
+--   last FRIDAY    OFFSET = 2   ← e.g. "what happened last Friday"
+--   last Saturday  OFFSET = 1
+-- Example — last Friday:
+WHERE date(timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 2) % 7) || ' days')
+-- Example — last Monday:
 WHERE date(timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')
--- For other weekdays replace the offset (the number added before % 7):
---   last Monday  offset +6    last Tuesday  offset +5    last Wednesday offset +4
---   last Thursday offset +3   last Friday   offset +2    last Saturday  offset +1    last Sunday offset +0
 
 -- Messages per day (activity histogram)
 SELECT date(timestamp, 'unixepoch') AS day, count(*) AS msgs
@@ -155,8 +163,12 @@ back to you for a natural-language answer. Signal this mode by writing the word
 
 Use synthesise mode when:
 - The question asks for a summary, trend, or interpretation ("what topics", "how active", "overall sentiment")
+- The question uses phrases like "what happened", "what was happening", "what did X discuss/say/work on", "what were people talking about"
 - The answer requires reading and combining the content of multiple messages
-- A plain table would not directly answer the question without further reasoning
+- A plain table of raw message text would not directly answer the question without further reasoning
+
+Use table mode when:
+- The question asks for counts, lists, or specific facts that speak for themselves ("how many", "who sent the most", "show me messages from X")
 
 Example of a synthesise response:
 ```
