@@ -26,3 +26,8 @@ slack-search = "slack_search.cli:cli"
 
 [tool.hatch.build.targets.wheel]
 packages = ["slack_search"]
+
+[dependency-groups]
+dev = [
+    "playwright>=1.60.0",
+]

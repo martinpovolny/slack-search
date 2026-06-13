@@ -90,7 +90,8 @@
   sql_checks:
     - {type: contains, value: "luke", case_insensitive: true}
     - {type: contains, value: "LIKE", case_insensitive: true}
-    - {type: contains, value: "+ 3) % 7", desc: "Thursday weekday offset"}
+    - {type: contains, value: "% 7", desc: "uses modulo weekday arithmetic"}
+    - {type: not_contains, value: "strftime('%w', m.timestamp, 'unixepoch') = '4'", desc: "must NOT match all Thursdays"}
     - {type: not_contains, value: "+ 6) % 7", desc: "must NOT use Monday offset for Thursday"}
   judge_criteria:
     - "The answer should describe topics, not say the data doesn't mention Luke."

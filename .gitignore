@@ -7,3 +7,9 @@ __pycache__/
 *.db
 ~/.slack-search/
 README.local.md
+.streamlit/
+.playwright-mcp/
+tests/results/
+*.png
+docs/.markdown-viewer-temp.html
+.claude/settings.local.json

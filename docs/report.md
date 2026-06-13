@@ -115,6 +115,8 @@ All prompts are stored as plain Markdown files in the `prompts/` directory:
 
 ## 5. Web UI
 
+![Web UI example](web-ui-example.png)
+
 The Streamlit web UI (`app.py`) provides a chat-like interface for querying the Slack archive without using the command line.
 
 ### Conversation sidebar
@@ -136,7 +138,15 @@ The UI exposes a model selector in the sidebar, allowing the user to switch betw
 
 Settings are persisted per conversation so switching models mid-session is explicit.
 
-## 6. Evaluation Framework
+## 6. Infrastructure
+
+The tool is designed to work with any OpenAI-compatible API endpoint. During development and evaluation, Red Hat IT-hosted LLM models were used via the corporate API (`models.corp`). These are production-grade models served on Red Hat infrastructure, including Llama 3.3 70B and several Qwen and Granite variants.
+
+The tool also supports local models via LM Studio. During development, `Qwen/Qwen3.6-27B` was run locally on a Mac Studio using LM Studio, consuming approximately 18 GB of RAM. While this provides a fully offline, zero-cost alternative, token generation was noticeably slow compared to API-hosted models — making it better suited for occasional use than interactive querying. Any OpenAI-compatible endpoint can be configured via the `LLM_BASE_URL` and `LLM_MODEL` environment variables.
+
+One practical challenge during development was network reliability: connectivity to the corporate API depends on VPN access, and intermittent VPN drops caused some eval runs to fail mid-suite with connection errors rather than prompt failures. The tool detects these and reports them clearly, and the eval can be re-run on individual test cases to recover quickly.
+
+## 7. Evaluation Framework
 
 A key part of the AI-SDLC approach is being able to measure quality objectively and iterate on it. The evaluation framework (`slack_search/eval.py`) runs a suite of test cases against the full NL→SQL pipeline and reports pass/fail results.
 
@@ -217,7 +227,7 @@ uv run slack-search eval --rht-model llama-3-3-70b-instruct-fp8-dynamic --judge-
 
 Results are saved to `tests/results/eval_TIMESTAMP.json` with the prompt hash recorded, making it easy to track which prompt version produced which results.
 
-## 7. Prompt Engineering Iterations
+## 8. Prompt Engineering Iterations
 
 This section is where the AI-SDLC methodology shows its value most clearly. Rather than manually testing queries and hoping for the best, the eval→fix→rerun loop made quality improvements measurable and reproducible. Running the first eval immediately surfaced concrete failure modes that would have been hard to catch through ad-hoc testing alone. Each problem below was diagnosed from eval output, fixed in the prompt, and verified by re-running the relevant test cases.
 
@@ -262,14 +272,6 @@ WHERE (u.name LIKE '%luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE 
 
 **Fix.** Two changes: (1) added a rule to the NL→SQL prompt to always include `u.real_name` in SELECT when filtering by a specific user; (2) added an explicit instruction to the synthesis prompt: "ALL rows satisfy the WHERE clause — if the SQL filters by a user name, every returned row is from that user; do not claim otherwise."
 
-## 8. Infrastructure
-
-The tool is designed to work with any OpenAI-compatible API endpoint. During development and evaluation, Red Hat IT-hosted LLM models were used via the corporate API (`models.corp`). These are production-grade models served on Red Hat infrastructure, including Llama 3.3 70B and several Qwen and Granite variants.
-
-The tool also supports local models via LM Studio. During development, `Qwen/Qwen3.6-27B` was run locally on a Mac Studio using LM Studio, consuming approximately 18 GB of RAM. While this provides a fully offline, zero-cost alternative, token generation was noticeably slow compared to API-hosted models — making it better suited for occasional use than interactive querying. Any OpenAI-compatible endpoint can be configured via the `LLM_BASE_URL` and `LLM_MODEL` environment variables.
-
-One practical challenge during development was network reliability: connectivity to the corporate API depends on VPN access, and intermittent VPN drops caused some eval runs to fail mid-suite with connection errors rather than prompt failures. The tool detects these and reports them clearly, and the eval can be re-run on individual test cases to recover quickly.
-
 ## 9. Results
 
 ### Eval progression
@@ -282,7 +284,7 @@ The evaluation framework was built and run iteratively. Each run exposed concret
 | After synthesis date fix | 8/9 | `thursday_topics` — synthesis doubted its own user filter |
 | After WHERE clause trust fix | **9/9** | All passing |
 
-### Final results (9/9 passing)
+### Final results — Llama-3.3-70B (9/9 passing)
 
 ```
 ✅ count_messages
@@ -301,3 +303,56 @@ The evaluation framework was built and run iteratively. Each run exposed concret
 The rule-based SQL checks (weekday offsets, LIKE vs `=`, required clauses) proved highly reliable — they caught all SQL-level regressions immediately and deterministically. The LLM judge was more valuable for catching answer-quality issues that are impossible to express as string matching: whether the response summarised content vs. echoed raw messages, whether it incorrectly claimed there were no results, and whether it correctly attributed messages to the right person.
 
 The most common failure pattern across all runs was the synthesis LLM being overly cautious — hedging with "no results found" or "data may not contain this information" even when the SQL had returned correct, relevant data. Each instance was fixed by providing the model with more context (today's date, explicit trust in the WHERE clause) rather than by changing the SQL generation logic.
+
+---
+
+_This report covers the project as of June 2026. Further work is ongoing._
+
+## 10. Model Comparison
+
+As part of the AI-SDLC approach, the evaluation framework was used not just to improve prompts but also to compare models objectively. Both models were run against the same 9-test suite with the same prompts and the same OpenCode.ai judge.
+
+### Available models
+
+The corporate API hosts 12 models. Based on published benchmarks and community evaluations:
+
+| Model | Size | Notes |
+|---|---|---|
+| `llama-3-3-70b-instruct-fp8-dynamic` | 70B (FP8) | Largest model; strong general quality |
+| `qwen3-14b` | 14B | Strong SQL/coding, hybrid thinking mode |
+| `gpt-oss-20b` | 20B MoE (3.6B active) | OpenAI's first open-weight release (Aug 2025) |
+| `granite-3.3-8b-instruct` | 8B | Best of the Granite 3.x family for code |
+| `granite-3.2-8b-instruct` | 8B | Superseded by 3.3 |
+| `granite-3.1-8b-instruct` | 8B | Baseline Granite |
+| `granite-4.0-micro/h-small/h-tiny` | 3B–7B MoE | Edge-focused, too small for this use case |
+| `granite-guardian-3.3-8b` | 8B | Safety classifier — not a generation model |
+| `granite-guardian-3.2-5b` | 5B | Safety classifier — not a generation model |
+| `mistral-7b-instruct-v0.3` | 7B | Oldest model; outperformed by all above |
+
+### Eval results: Llama-3.3-70B vs Qwen3-14B
+
+| Test case | Llama-3.3-70B | Qwen3-14B |
+|---|---|---|
+| count_messages | ✅ | ✅ |
+| top_senders | ✅ | ✅ |
+| user_lookup_name_fields | ✅ | ✅ |
+| last_friday | ✅ | ✅ |
+| weekly_topics | ✅ | ✅ |
+| user_weekly_summary | ✅ | ✅ |
+| user_messages_count | ✅ | ✅ |
+| user_recent_activity | ✅ | ✅ |
+| thursday_topics | ✅ | ❌ |
+| **Total** | **9/9** | **8/9** |
+
+### Analysis
+
+Qwen3-14B's one failure on `thursday_topics` is instructive. It filtered correctly by the user (Luke, with LIKE across all name fields) but interpreted "on Thursday" as all Thursdays (`strftime('%w') = '4'`) rather than last Thursday specifically. It also chose table mode instead of synthesise — returning raw message rows rather than a topic summary.
+
+This reflects a genuine ambiguity in the question: "on Thursday" could mean "every Thursday" or "last Thursday." Llama-3.3-70B defaulted to "last Thursday" (using the offset formula from the prompt), which matched the test expectation. Qwen's interpretation is not wrong — it is a different trade-off between specificity and coverage.
+
+### Recommendation
+
+For this use case, **Llama-3.3-70B** produces marginally more reliable results on the current test suite and follows prompt instructions more closely. **Qwen3-14B** is a strong alternative — 14B parameters vs 70B, with comparable performance — and would likely reach 9/9 with a small prompt adjustment to clarify the "last Thursday" vs "all Thursdays" intent.
+
+For fully offline use, `Qwen/Qwen3.6-27B` was tested locally via LM Studio on a Mac Studio (18 GB RAM). It works correctly but token generation is noticeably slower than API-hosted models.
+

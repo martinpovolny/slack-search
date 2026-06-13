@@ -65,16 +65,42 @@ def _fetch_lm_studio_models() -> list[str]:
 DEFAULT_DB = Path.home() / ".slack-search" / "messages.db"
 CONV_DB_PATH = Path.home() / ".slack-search" / "conversations.db"
 PROMPT_PATH = Path(__file__).parent / "prompts" / "nl_to_sql.md"
+SYNTHESIS_PROMPT_PATH = Path(__file__).parent / "prompts" / "synthesis.md"
 
 MAX_LLM_ROWS = 100  # max rows forwarded to the LLM in synthesise mode
 SYNTHESISE_MARKER = "[SYNTHESISE]"
 
 
-def load_system_prompt() -> str:
-    if PROMPT_PATH.exists():
-        return PROMPT_PATH.read_text()
-    from slack_search.search import SCHEMA_DESCRIPTION
-    return f"You are a SQL expert for a Slack message archive in SQLite.\n\n{SCHEMA_DESCRIPTION}"
+def load_system_prompt(conn: sqlite3.Connection | None = None) -> str:
+    from datetime import date as _date
+    text = PROMPT_PATH.read_text() if PROMPT_PATH.exists() else (
+        "You are a SQL expert for a Slack message archive in SQLite.\n\n"
+    )
+    today = _date.today().strftime("%A, %Y-%m-%d")
+    archive_range = ""
+    if conn:
+        try:
+            row = conn.execute(
+                "SELECT date(min(timestamp), 'unixepoch') as oldest, "
+                "date(max(timestamp), 'unixepoch') as newest FROM messages"
+            ).fetchone()
+            if row and row[0]:
+                archive_range = f"Archive date range: {row[0]} to {row[1]}. "
+        except Exception:
+            pass
+    header = f"Today is {today}. {archive_range}When the user mentions a date without a year, use a year within the archive range.\n\n"
+    return header + text
+
+
+def load_synthesis_prompt() -> str:
+    from datetime import date as _date
+    today_str = _date.today().strftime("%A, %Y-%m-%d")
+    if SYNTHESIS_PROMPT_PATH.exists():
+        return SYNTHESIS_PROMPT_PATH.read_text().replace("{today}", today_str)
+    return (
+        f"You are a helpful assistant analysing Slack archive query results. Today is {today_str}. "
+        "Answer the user's question directly and concisely based on the SQL results provided."
+    )
 
 
 def _extract_sql(text: str) -> str | None:
@@ -314,8 +340,42 @@ def render_nlq(
 
     messages: list[dict] = st.session_state.nlq_messages
 
+    # Handle pending synthesis (triggered by "Summarise" button on a past message)
+    if pending := st.session_state.pop("pending_synthesise", None):
+        client = make_client(provider, model)
+        effective_model = api_model_id(provider, model or OPENCODE_MODELS[0])
+        sql = pending["sql"]
+        question = pending["question"]
+        df = pending["df"]
+        results_text = _results_to_text(df)
+        synthesis_msgs = [
+            {"role": "system", "content": load_synthesis_prompt()},
+            {"role": "user", "content": (
+                f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
+                f"Query results:\n\n{results_text}\n\n"
+                f"Question: {question}"
+            )},
+        ]
+        nl_answer = ""
+        with st.spinner("Summarising…"):
+            try:
+                stream = client.chat.completions.create(
+                    model=effective_model, messages=synthesis_msgs, temperature=0, stream=True,
+                )
+                for chunk in stream:
+                    if chunk.choices and chunk.choices[0].delta.content:
+                        nl_answer += chunk.choices[0].delta.content
+            except Exception as e:
+                st.error(f"Synthesis error: {e}")
+        if nl_answer:
+            idx = pending["msg_index"]
+            messages[idx]["nl_answer"] = nl_answer
+            messages[idx]["content"] = nl_answer
+            append_message(conv_conn, cid, "assistant", nl_answer, sql=sql)
+        st.rerun()
+
     # Render history
-    for msg in messages:
+    for i, msg in enumerate(messages):
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
             if "sql" in msg:
@@ -323,6 +383,18 @@ def render_nlq(
                     st.code(msg["sql"], language="sql")
             if "df" in msg:
                 st.dataframe(msg["df"], width="stretch")
+            # Show synthesis button for table-mode assistant messages without an NL answer
+            if (msg["role"] == "assistant" and "sql" in msg and "df" in msg
+                    and "nl_answer" not in msg and i > 0):
+                user_q = next(
+                    (m["content"] for m in reversed(messages[:i]) if m["role"] == "user"), ""
+                )
+                if st.button("✨ Summarise with AI", key=f"synth_{i}"):
+                    st.session_state["pending_synthesise"] = {
+                        "sql": msg["sql"], "question": user_q,
+                        "df": msg["df"], "msg_index": i,
+                    }
+                    st.rerun()
 
     # Input
     prompt = st.chat_input("Ask anything about your Slack archive…")
@@ -352,7 +424,7 @@ def render_nlq(
         st.markdown(prompt)
 
     # Build API message list (send content only, not df/sql metadata)
-    system_prompt = load_system_prompt()
+    system_prompt = load_system_prompt(msg_conn)
     api_msgs = [{"role": "system", "content": system_prompt}]
     for m in messages[:-1]:
         api_msgs.append({"role": m["role"], "content": m["content"]})
@@ -396,15 +468,7 @@ def render_nlq(
                     df = pd.read_sql_query(_cap_sql(sql), msg_conn)
                     results_text = _results_to_text(df)
                     synthesis_msgs = [
-                        {"role": "system", "content": (
-                            "You are a helpful assistant analysing Slack archive query results. "
-                            "The SQL query was already run and the results below are the complete, "
-                            "correct dataset for answering the question — trust them fully. "
-                            "Use the SQL query to understand what the result rows represent "
-                            "(e.g. which user, channel, or time period was filtered). "
-                            "Do not speculate about missing data or caveat whether the right rows "
-                            "were returned. Answer the user's question directly and concisely."
-                        )},
+                        {"role": "system", "content": load_synthesis_prompt()},
                         {"role": "user", "content": (
                             f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
                             f"Query results:\n\n{results_text}\n\n"
@@ -441,13 +505,17 @@ def render_nlq(
         record["sql"] = sql
     if df is not None:
         record["df"] = df
+    if nl_answer:
+        record["nl_answer"] = nl_answer
     messages.append(record)
 
     # Generate title from the first exchange and rerun so the sidebar reflects it
     if is_first_message:
         title = _generate_title(client, effective_model, prompt, stored_content)
         rename_conversation(conv_conn, cid, title)
-        st.rerun()
+    # Always rerun so the history loop re-renders with the new message,
+    # which is needed to show the "Summarise" button on table-mode responses
+    st.rerun()
 
 
 # ── Browse tab ────────────────────────────────────────────────────────────────
@@ -487,8 +555,22 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     """
     params.append(limit)
     df = pd.read_sql_query(sql, conn, params=params)
-    st.dataframe(df, width="stretch", height=600)
-    st.caption(f"{len(df)} row(s) shown")
+
+    event = st.dataframe(
+        df,
+        width="stretch",
+        height=400,
+        on_select="rerun",
+        selection_mode="single-row",
+    )
+
+    rows = event.selection.rows if event and event.selection else []
+    st.caption(f"{len(df)} row(s) shown — click a row to read the full message below")
+
+    if rows:
+        row = df.iloc[rows[0]]
+        st.markdown(f"**{row['time']}** · {row['author']} · #{row['channel']}")
+        st.markdown(f"<div style='font-size:20px; line-height:1.7'>{row['text']}</div>", unsafe_allow_html=True)
 
 
 # ── SQL tab ───────────────────────────────────────────────────────────────────

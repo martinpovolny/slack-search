@@ -22,12 +22,27 @@ MAX_LLM_ROWS = 100
 SYNTHESISE_MARKER = "[SYNTHESISE]"
 
 
-def _load_system_prompt(prompt_path: Path | None = None) -> str:
+def _load_system_prompt(prompt_path: Path | None = None, conn: sqlite3.Connection | None = None) -> str:
+    from datetime import date as _date
     path = prompt_path or PROMPT_PATH
-    if path.exists():
-        return path.read_text()
-    from .search import SCHEMA_DESCRIPTION
-    return f"You are a SQL expert for a Slack message archive in SQLite.\n\n{SCHEMA_DESCRIPTION}"
+    text = path.read_text() if path.exists() else (
+        "You are a SQL expert for a Slack message archive in SQLite.\n\n"
+        + __import__("slack_search.search", fromlist=["SCHEMA_DESCRIPTION"]).SCHEMA_DESCRIPTION
+    )
+    today = _date.today().strftime("%A, %Y-%m-%d")
+    archive_range = ""
+    if conn:
+        try:
+            row = conn.execute(
+                "SELECT date(min(timestamp), 'unixepoch') as oldest, "
+                "date(max(timestamp), 'unixepoch') as newest FROM messages"
+            ).fetchone()
+            if row and row[0]:
+                archive_range = f"Archive date range: {row[0]} to {row[1]}. "
+        except Exception:
+            pass
+    header = f"Today is {today}. {archive_range}When the user mentions a date without a year, use a year within the archive range.\n\n"
+    return header + text
 
 
 def _extract_sql(text: str) -> Optional[str]:
@@ -118,7 +133,7 @@ def run_query(
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": _load_system_prompt(prompt_path)},
+                {"role": "system", "content": _load_system_prompt(prompt_path, conn)},
                 {"role": "user", "content": question},
             ],
             temperature=0,
