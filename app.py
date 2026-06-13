@@ -152,7 +152,7 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
         # ── Conversation list ─────────────────────────────────────────────────
         st.subheader("Conversations")
 
-        if st.button("＋ New conversation", use_container_width=True):
+        if st.button("＋ New conversation", width="stretch"):
             cid = create_conversation(conv_conn)
             st.session_state.conversation_id = cid
             st.session_state.nlq_messages = []
@@ -171,7 +171,7 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
                 if st.button(
                     label,
                     key=f"conv_{cid}",
-                    use_container_width=True,
+                    width="stretch",
                     help=f"id: {cid}",
                     type="primary" if is_active else "secondary",
                 ):
@@ -277,7 +277,7 @@ def render_nlq(
                 with st.expander("Generated SQL"):
                     st.code(msg["sql"], language="sql")
             if "df" in msg:
-                st.dataframe(msg["df"], use_container_width=True)
+                st.dataframe(msg["df"], width="stretch")
 
     # Input
     prompt = st.chat_input("Ask anything about your Slack archive…")
@@ -380,7 +380,7 @@ def render_nlq(
                     st.caption(f"Based on {len(df)} row(s), capped at {MAX_LLM_ROWS}")
                 else:
                     df = pd.read_sql_query(sql, msg_conn)
-                    st.dataframe(df, use_container_width=True)
+                    st.dataframe(df, width="stretch")
                     st.caption(f"{len(df)} row(s)")
             except Exception as e:
                 st.error(f"SQL error: {e}")
@@ -440,7 +440,7 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     """
     params.append(limit)
     df = pd.read_sql_query(sql, conn, params=params)
-    st.dataframe(df, use_container_width=True, height=600)
+    st.dataframe(df, width="stretch", height=600)
     st.caption(f"{len(df)} row(s) shown")
 
 
@@ -462,7 +462,7 @@ def render_sql(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     if st.button("Run", type="primary"):
         try:
             df = pd.read_sql_query(sql_input, conn)
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, width="stretch")
             st.caption(f"{len(df)} row(s)")
         except Exception as e:
             st.error(f"SQL error: {e}")
