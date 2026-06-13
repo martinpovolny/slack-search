@@ -13,6 +13,7 @@ from .database import open_db
 from .downloader import download
 from .search import run_sql, show_schema
 from .ai_query import ask, load_rht_config
+from .eval import run_eval, save_results, print_summary, TESTS_DIR
 from .curl_parser import parse_curl
 
 console = Console()
@@ -238,5 +239,54 @@ def nlq(
     ask(conn, question, base_url=llm_url, model=llm_model, api_key=llm_api_key)
 
 
+@cli.command()
+@click.option("--rht-model", default=None, help="RHT model name (reads from .rht_models.json)")
+@click.option("--llm-url", envvar="LLM_BASE_URL", default=DEFAULT_LLM_URL, help="LLM base URL")
+@click.option("--llm-model", envvar="LLM_MODEL", default=DEFAULT_LLM_MODEL, help="Model name")
+@click.option("--llm-api-key", envvar="LLM_API_KEY", default="local", help="API key")
+@click.option("--test-ids", default=None, help="Comma-separated list of test IDs to run (default: all)")
+@click.option("--no-judge", is_flag=True, default=False, help="Skip LLM judge, only run SQL checks")
+@click.option("--prompt", default=None, type=click.Path(exists=True), help="Custom system prompt file")
+@click.pass_context
+def eval_cmd(
+    ctx: click.Context,
+    rht_model: str,
+    llm_url: str,
+    llm_model: str,
+    llm_api_key: str,
+    test_ids: str,
+    no_judge: bool,
+    prompt: str,
+) -> None:
+    """Run NL→SQL evaluation suite against a set of test cases."""
+    from pathlib import Path as _Path
+    from openai import OpenAI as _OpenAI
+    from .ai_query import _http_client, PROMPT_PATH
+
+    if rht_model:
+        llm_url, llm_api_key, llm_model = load_rht_config(rht_model)
+
+    http = _http_client()
+    client = _OpenAI(base_url=llm_url, api_key=llm_api_key, **({"http_client": http} if http else {}))
+    conn = ctx.obj["db"]
+    ids = [t.strip() for t in test_ids.split(",")] if test_ids else None
+    prompt_path = _Path(prompt) if prompt else PROMPT_PATH
+
+    results = run_eval(
+        conn=conn,
+        client=client,
+        model=llm_model,
+        test_ids=ids,
+        judge_client=None if no_judge else client,
+        judge_model=None if no_judge else llm_model,
+        prompt_path=prompt_path,
+    )
+
+    print_summary(results)
+    out = save_results(results, prompt_path)
+    print(f"\nResults saved to: {out}")
+
+
 # Alias
 cli.add_command(download_cmd, name="download")
+cli.add_command(eval_cmd, name="eval")

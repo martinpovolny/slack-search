@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import json
 import os
 import sqlite3
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -18,9 +21,10 @@ MAX_LLM_ROWS = 100
 SYNTHESISE_MARKER = "[SYNTHESISE]"
 
 
-def _load_system_prompt() -> str:
-    if PROMPT_PATH.exists():
-        return PROMPT_PATH.read_text()
+def _load_system_prompt(prompt_path: Path | None = None) -> str:
+    path = prompt_path or PROMPT_PATH
+    if path.exists():
+        return path.read_text()
     from .search import SCHEMA_DESCRIPTION
     return f"You are a SQL expert for a Slack message archive in SQLite.\n\n{SCHEMA_DESCRIPTION}"
 
@@ -85,101 +89,145 @@ def _http_client() -> httpx.Client | None:
     return None
 
 
-def ask(
+# ── Core structured result ────────────────────────────────────────────────────
+
+@dataclass
+class QueryResult:
+    question: str
+    raw_response: str | None = None
+    sql: str | None = None
+    mode: str = "table"          # "table" | "synthesise" | "error"
+    df: pd.DataFrame | None = None
+    nl_answer: str | None = None
+    error: str | None = None
+
+
+def run_query(
     conn: sqlite3.Connection,
     question: str,
-    base_url: str,
+    client: OpenAI,
     model: str,
-    api_key: str = "local",
-) -> None:
-    from rich.console import Console
-    from rich.markdown import Markdown
-    from rich.table import Table
-
-    console = Console()
-    http = _http_client()
-    console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http else ''}…[/]")
-
-    client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
+    prompt_path: Path | None = None,
+) -> QueryResult:
+    """Run the full NL→SQL→(synthesise) pipeline and return structured result."""
+    result = QueryResult(question=question)
 
     # ── Phase 1: NL → SQL ────────────────────────────────────────────────────
     try:
         response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": _load_system_prompt()},
+                {"role": "system", "content": _load_system_prompt(prompt_path)},
                 {"role": "user", "content": question},
             ],
             temperature=0,
         )
-    except APIConnectionError as e:
-        _connection_error(console, base_url, e)
-        return
-    except APIStatusError as e:
-        console.print(f"[red]API error {e.status_code}:[/] {e.message}")
-        return
+    except (APIConnectionError, APIStatusError) as e:
+        result.mode = "error"
+        result.error = str(e)
+        return result
 
-    answer = response.choices[0].message.content
-    synthesise = SYNTHESISE_MARKER in answer
-    display_answer = answer.replace(SYNTHESISE_MARKER, "").lstrip("\n").strip()
+    raw = response.choices[0].message.content
+    result.raw_response = raw
+    synthesise = SYNTHESISE_MARKER in raw
+    result.mode = "synthesise" if synthesise else "table"
 
-    console.print(Markdown(display_answer))
-
-    sql = _extract_sql(answer)
+    sql = _extract_sql(raw)
+    result.sql = sql
     if not sql:
-        return
+        return result
 
     # ── Execute SQL ──────────────────────────────────────────────────────────
-    capped_sql = _cap_sql(sql) if synthesise else sql
     try:
-        df = pd.read_sql_query(capped_sql, conn)
+        capped = _cap_sql(sql) if synthesise else sql
+        result.df = pd.read_sql_query(capped, conn)
     except Exception as e:
-        console.print(f"[red]SQL error:[/] {e}")
-        return
+        result.error = f"SQL error: {e}"
+        return result
 
     if not synthesise:
-        run_sql(conn, sql)
-        return
+        return result
 
     # ── Phase 2: synthesise ──────────────────────────────────────────────────
-    console.print(f"\n[dim]Running synthesis over {len(df)} row(s)…[/]")
+    rows_text = _df_to_markdown(result.df)
 
+    try:
+        synthesis_response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": (
+                    "You are a helpful assistant analysing Slack archive query results. "
+                    "The SQL query was already run and the results below are the complete, "
+                    "correct dataset for answering the question — trust them fully. "
+                    "Use the SQL query to understand what the result rows represent "
+                    "(e.g. which user, channel, or time period was filtered). "
+                    "Do not speculate about missing data or caveat whether the right rows "
+                    "were returned. Answer the user's question directly and concisely."
+                )},
+                {"role": "user", "content": (
+                    f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
+                    f"Query results:\n\n{rows_text}\n\n"
+                    f"Question: {question}"
+                )},
+            ],
+            temperature=0,
+        )
+        result.nl_answer = synthesis_response.choices[0].message.content
+    except (APIConnectionError, APIStatusError) as e:
+        result.error = f"Synthesis error: {e}"
+
+    return result
+
+
+def _df_to_markdown(df: pd.DataFrame) -> str:
+    if df.empty:
+        return "(no rows returned)"
     header = " | ".join(str(c) for c in df.columns)
     sep = " | ".join("---" for _ in df.columns)
     rows = "\n".join(" | ".join(str(v) for v in row) for row in df.itertuples(index=False))
-    results_text = f"{header}\n{sep}\n{rows}"
-    if len(df) == MAX_LLM_ROWS:
-        results_text += f"\n\n_(results capped at {MAX_LLM_ROWS} rows)_"
+    note = f"\n\n_(results capped at {MAX_LLM_ROWS} rows)_" if len(df) == MAX_LLM_ROWS else ""
+    return f"{header}\n{sep}\n{rows}{note}"
 
-    try:
-      synthesis_response = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": (
-                "You are a helpful assistant analysing Slack archive query results. "
-                "The SQL query was already run and the results below are the complete, "
-                "correct dataset for answering the question — trust them fully. "
-                "Use the SQL query to understand what the result rows represent "
-                "(e.g. which user, channel, or time period was filtered). "
-                "Do not speculate about missing data or caveat whether the right rows "
-                "were returned. Answer the user's question directly and concisely."
-            )},
-            {"role": "user", "content": (
-                f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
-                f"Query results:\n\n{results_text}\n\n"
-                f"Question: {question}"
-            )},
-        ],
-        temperature=0,
-      )
-    except APIConnectionError as e:
-        _connection_error(console, base_url, e)
-        return
-    except APIStatusError as e:
-        console.print(f"[red]API error {e.status_code}:[/] {e.message}")
+
+# ── CLI-facing ask() — calls run_query and prints ────────────────────────────
+
+def ask(
+    conn: sqlite3.Connection,
+    question: str,
+    base_url: str,
+    model: str,
+    api_key: str = "local",
+    prompt_path: Path | None = None,
+) -> None:
+    from rich.console import Console
+    from rich.markdown import Markdown
+
+    console = Console()
+    http = _http_client()
+    console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http else ''}…[/]")
+
+    client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
+    result = run_query(conn, question, client, model, prompt_path)
+
+    if result.error and result.mode == "error":
+        # Distinguish connection errors from SQL/synthesis errors
+        if "Connection" in result.error or "APIConnection" in result.error:
+            _connection_error(console, base_url, Exception(result.error))
+        else:
+            console.print(f"[red]Error:[/] {result.error}")
         return
 
-    nl_answer = synthesis_response.choices[0].message.content
-    console.print("\n[bold cyan]Answer:[/]")
-    console.print(Markdown(nl_answer))
-    console.print(f"\n[dim](based on {len(df)} row(s), capped at {MAX_LLM_ROWS})[/]")
+    display = (result.raw_response or "").replace(SYNTHESISE_MARKER, "").lstrip("\n").strip()
+    console.print(Markdown(display))
+
+    if result.error:
+        console.print(f"[red]{result.error}[/]")
+        return
+
+    if result.sql and result.mode == "table" and result.df is not None:
+        run_sql(conn, result.sql)
+
+    if result.nl_answer:
+        console.print("\n[bold cyan]Answer:[/]")
+        console.print(Markdown(result.nl_answer))
+        console.print(f"\n[dim](based on {len(result.df)} row(s), capped at {MAX_LLM_ROWS})[/]")

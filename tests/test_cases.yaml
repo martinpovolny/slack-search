@@ -1,0 +1,96 @@
+# NL→SQL evaluation test cases
+# Each case is run against the LLM and evaluated on sql_checks (rule-based)
+# and judge_criteria (LLM-as-judge).
+
+- id: count_messages
+  question: "how many messages are in the archive?"
+  expected_mode: table
+  sql_checks:
+    - {type: contains, value: "count", case_insensitive: true}
+    - {type: contains, value: "messages"}
+  judge_criteria: []   # table mode, no synthesis to judge
+
+- id: top_senders
+  question: "who sends the most messages?"
+  expected_mode: table
+  sql_checks:
+    - {type: contains, value: "count", case_insensitive: true}
+    - {type: contains, value: "GROUP BY", case_insensitive: true}
+    - {type: contains, value: "ORDER BY", case_insensitive: true}
+    - {type: contains, value: "users"}
+  judge_criteria: []
+
+- id: user_lookup_name_fields
+  question: "What are the topics that Luke (lcouzens) spoke about last Monday?"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "lcouzens"}
+    - {type: contains, value: "LIKE", case_insensitive: true}
+    - {type: not_contains, value: "real_name = 'Luke'"}
+    - {type: not_contains, value: "real_name = \"Luke\""}
+    - {type: contains, value: "+ 6) % 7", desc: "Monday weekday offset"}
+  judge_criteria:
+    - "The answer should identify topics Luke discussed, not say 'no results' or 'unknown author'."
+    - "The answer must not claim the data doesn't contain information about Luke."
+
+- id: last_friday
+  question: "What was happening last Friday?"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "+ 2) % 7", desc: "Friday weekday offset"}
+    - {type: not_contains, value: "+ 6) % 7", desc: "must NOT use Monday offset for Friday"}
+    - {type: contains, value: "timestamp"}
+  judge_criteria:
+    - "The answer should summarise what happened, not just echo raw message text."
+    - "The answer should mention specific topics or activities, not say 'no results'."
+
+- id: weekly_topics
+  question: "what topics did the team discuss this week?"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "timestamp"}
+    - {type: contains, value: "unixepoch", case_insensitive: true}
+  judge_criteria:
+    - "The answer should list or summarise discussion topics, not just list message authors."
+
+- id: user_weekly_summary
+  question: "create a summary of what Martin talked about in the last week"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "LIKE", case_insensitive: true}
+    - {type: contains, value: "martin", case_insensitive: true}
+    - {type: not_contains, value: "real_name = 'Martin'"}
+    - {type: contains, value: "7 days", desc: "last week filter"}
+  judge_criteria:
+    - "The answer should summarise Martin's contributions, not list raw messages."
+    - "The answer must not say the data contains no information about Martin."
+
+- id: user_messages_count
+  question: "how many messages did Martin send in the last 2 weeks?"
+  expected_mode: table
+  sql_checks:
+    - {type: contains, value: "count", case_insensitive: true}
+    - {type: contains, value: "martin", case_insensitive: true}
+    - {type: contains, value: "14 days", desc: "2-week filter"}
+    - {type: not_contains, value: "real_name = 'Martin'"}
+
+- id: user_recent_activity
+  question: "what did David talk about last?"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "david", case_insensitive: true}
+    - {type: contains, value: "LIKE", case_insensitive: true}
+    - {type: not_contains, value: "real_name = 'David'"}
+  judge_criteria:
+    - "The answer should describe what David discussed, not say 'no results'."
+
+- id: thursday_topics
+  question: "what are the top topics Luke talked about on Thursday?"
+  expected_mode: synthesise
+  sql_checks:
+    - {type: contains, value: "luke", case_insensitive: true}
+    - {type: contains, value: "LIKE", case_insensitive: true}
+    - {type: contains, value: "+ 3) % 7", desc: "Thursday weekday offset"}
+    - {type: not_contains, value: "+ 6) % 7", desc: "must NOT use Monday offset for Thursday"}
+  judge_criteria:
+    - "The answer should describe topics, not say the data doesn't mention Luke."
