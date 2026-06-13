@@ -55,6 +55,18 @@ CREATE TABLE download_state (
 );
 ```
 
+## SQLite dialect — what NOT to use
+
+| Do NOT use          | Use instead                                      |
+|---------------------|--------------------------------------------------|
+| `ILIKE`             | `LIKE` (already case-insensitive for ASCII)      |
+| `NOW()`             | `'now'` string, e.g. `unixepoch('now')`          |
+| `INTERVAL '7 days'` | modifier string: `unixepoch('now', '-7 days')`   |
+| `EXTRACT(DOW …)`    | `strftime('%w', timestamp, 'unixepoch')`         |
+| `DATE_TRUNC(…)`     | `strftime('%Y-%m-%d', timestamp, 'unixepoch')`   |
+| `weekday N` modifier | it advances *forward*, not backward — see below |
+| `datetime(…) >= '2024-…'` | `timestamp >= unixepoch('2024-…')` — always compare the numeric column |
+
 ## Useful patterns
 
 ```sql
@@ -73,18 +85,40 @@ WHERE thread_ts IS NOT NULL AND thread_ts != ts
 -- Messages mentioning a user (Slack encodes mentions as <@UXXXXXXX>)
 WHERE text LIKE '%<@U...>%'
 
--- Last N days
-WHERE timestamp > unixepoch('now', '-N days')
-
--- Specific named weekday (SQLite weekday: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat)
--- Days back to last Monday: (strftime('%w','now') + 6) % 7
--- Use this pattern for ANY "last <weekday>" query:
-WHERE date(timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')
--- Adjust the +6 offset: Mon=+6, Tue=+5, Wed=+4, Thu=+3, Fri=+2, Sat=+1, Sun=+0
-
--- Finding a user by name (always search all name fields with LIKE, never exact-match a single field)
--- Example for "Luke":
+-- Finding a user by name: always search all three name fields with LIKE
 WHERE (u.name LIKE '%luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')
+-- Also check messages.username for bot/guest messages not in the users table
+-- WHERE m.username LIKE '%luke%'
+
+-- Last N days
+WHERE timestamp > unixepoch('now', '-7 days')
+
+-- Today
+WHERE date(timestamp, 'unixepoch') = date('now')
+
+-- This calendar week (Monday–today)
+WHERE timestamp >= unixepoch(date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days'))
+
+-- This month
+WHERE strftime('%Y-%m', timestamp, 'unixepoch') = strftime('%Y-%m', 'now')
+
+-- Specific named weekday — NEVER use the weekday modifier; use offset arithmetic instead.
+-- SQLite weekday numbers: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat
+-- "Last Monday" (target weekday = 1):
+WHERE date(timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')
+-- For other weekdays replace the offset (the number added before % 7):
+--   last Monday  offset +6    last Tuesday  offset +5    last Wednesday offset +4
+--   last Thursday offset +3   last Friday   offset +2    last Saturday  offset +1    last Sunday offset +0
+
+-- Messages per day (activity histogram)
+SELECT date(timestamp, 'unixepoch') AS day, count(*) AS msgs
+FROM messages GROUP BY day ORDER BY day
+
+-- Active users in a period
+SELECT u.real_name, count(*) AS msgs
+FROM messages m JOIN users u ON m.user_id = u.id
+WHERE timestamp > unixepoch('now', '-30 days')
+GROUP BY u.id ORDER BY msgs DESC LIMIT 20
 ```
 
 ## Your task
