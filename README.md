@@ -26,6 +26,16 @@ uv run slack-search download --curl "$(cat .curl)" --channel cost-mgmt-dev --sin
 
 Reruns are incremental — only new messages are fetched.
 
+### Refreshing all channels at once
+
+Once you have downloaded one or more channels, you can update all of them in one go:
+
+```bash
+uv run slack-search refresh --curl "$(cat .curl)" --no-files
+```
+
+This reads every channel stored in the database and fetches new messages since the last run for each one. Accepts the same credential options as `download`.
+
 ### Standard Slack (xoxp- / xoxb- token)
 
 ```bash

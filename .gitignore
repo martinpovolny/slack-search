@@ -12,4 +12,5 @@ README.local.md
 tests/results/
 *.png
 docs/.markdown-viewer-temp.html
+.markdown-viewer-temp.html
 .claude/settings.local.json

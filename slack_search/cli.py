@@ -181,6 +181,78 @@ def download_cmd(
 
 
 @cli.command()
+@click.option("--curl", "curl_command", envvar="SLACK_CURL", default=None, metavar="CURL",
+              help="'Copy as cURL' command from Chrome DevTools to auto-extract credentials")
+@click.option("--token", envvar="SLACK_TOKEN", default=None, help="Slack token")
+@click.option("--cookie", envvar="SLACK_COOKIE", default=None, help="Value of the 'd' cookie (xoxc- only)")
+@click.option("--workspace", envvar="SLACK_WORKSPACE", default=None, help="Workspace hostname")
+@click.option("--files-dir", default=str(DEFAULT_FILES_DIR), show_default=True, help="Directory for file attachments")
+@click.option("--no-files", is_flag=True, default=False, help="Skip downloading file attachments")
+@click.option("--no-threads", is_flag=True, default=False, help="Skip fetching thread replies")
+@click.pass_context
+def refresh(
+    ctx: click.Context,
+    curl_command: Optional[str],
+    token: Optional[str],
+    cookie: Optional[str],
+    workspace: Optional[str],
+    files_dir: str,
+    no_files: bool,
+    no_threads: bool,
+) -> None:
+    """Refresh all known channels: fetch new messages since the last download.
+
+    Reads the list of channels from the database and runs an incremental
+    download for each one, resuming from where the last run left off.
+    """
+    raw_cookies: Optional[str] = None
+    if curl_command:
+        try:
+            creds = parse_curl(curl_command)
+        except ValueError as e:
+            console.print(f"[red]Could not parse curl command:[/] {e}")
+            raise SystemExit(1)
+        token = token or creds.token
+        cookie = cookie or creds.cookie
+        workspace = workspace or creds.workspace
+        raw_cookies = creds.raw_cookies
+
+    if not token:
+        console.print("[red]Error:[/] No token found. Pass --token, set SLACK_TOKEN, or use --curl.")
+        raise SystemExit(1)
+
+    conn = ctx.obj["db"]
+    channels = conn.execute("SELECT id, name FROM channels ORDER BY name").fetchall()
+    if not channels:
+        console.print("[yellow]No channels in database. Run 'download' first to add channels.[/]")
+        return
+
+    dest = None if no_files else Path(files_dir)
+    total_new = 0
+    for ch in channels:
+        channel_id, channel_name = ch["id"], ch["name"]
+        console.print(f"\n[bold]#{channel_name}[/] ({channel_id})")
+        try:
+            count = download(
+                conn=conn,
+                token=token,
+                cookie=cookie,
+                workspace=workspace,
+                raw_cookies=raw_cookies,
+                channel=channel_id,
+                since=None,
+                files_dir=dest,
+                fetch_threads=not no_threads,
+            )
+            console.print(f"  [green]✓[/] {count} new message(s)")
+            total_new += count
+        except Exception as e:
+            console.print(f"  [red]✗ Error:[/] {e}")
+
+    console.print(f"\n[green]Done.[/] {total_new} new message(s) across {len(channels)} channel(s).")
+
+
+@cli.command()
 @click.argument("sql_query")
 @click.pass_context
 def search(ctx: click.Context, sql_query: str) -> None:
@@ -309,6 +381,7 @@ def eval_cmd(
     print(f"\nResults saved to: {out}")
 
 
-# Alias
+# Aliases
 cli.add_command(download_cmd, name="download")
 cli.add_command(eval_cmd, name="eval")
+cli.add_command(refresh, name="refresh")
