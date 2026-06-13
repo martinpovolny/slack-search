@@ -3,5 +3,6 @@ __pycache__/
 *.pyc
 .curl
 .env
+.rht_models.json
 *.db
 ~/.slack-search/

@@ -1,5 +1,6 @@
 """Slack Search — Streamlit web UI."""
 
+import json
 import re
 import sqlite3
 import os
@@ -34,6 +35,16 @@ OPENCODE_MODELS = ["qwen3.6-plus", "qwen3.5-plus"]
 LM_STUDIO_HOST = os.getenv("LM_STUDIO_HOST", "localhost")
 LM_STUDIO_PORT = os.getenv("LM_STUDIO_PORT", "1234")
 LM_STUDIO_BASE_URL = f"http://{LM_STUDIO_HOST}:{LM_STUDIO_PORT}/v1"
+
+RHT_MODELS_FILE = Path(__file__).parent / ".rht_models.json"
+
+
+def _load_rht_models() -> tuple[str, dict[str, str]]:
+    """Return (base_url, {model_name: api_key}) from .rht_models.json, or empty if missing."""
+    if not RHT_MODELS_FILE.exists():
+        return "", {}
+    data = json.loads(RHT_MODELS_FILE.read_text())
+    return data.get("base_url", ""), data.get("models", {})
 
 
 @st.cache_data(ttl=60)
@@ -72,11 +83,15 @@ def _extract_sql(text: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
-def make_client(provider: str) -> OpenAI:
+def make_client(provider: str, model: str = "") -> OpenAI:
     if provider == "OpenCode.ai":
         return OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL)
     if provider == "LM Studio (local)":
         return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL)
+    if provider == "RHT models.corp":
+        base_url, model_keys = _load_rht_models()
+        api_key = model_keys.get(model, "")
+        return OpenAI(api_key=api_key, base_url=base_url)
     raise ValueError(f"Unknown provider: {provider}")
 
 
@@ -213,14 +228,19 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
         lm_studio_models = _fetch_lm_studio_models()
         if lm_studio_models:
             providers.append("LM Studio (local)")
+        rht_base_url, rht_model_keys = _load_rht_models()
+        if rht_model_keys:
+            providers.append("RHT models.corp")
 
         if not providers:
-            st.error("No LLM configured. Add OPENCODE_API_KEY to .env or start LM Studio.")
+            st.error("No LLM configured. Add OPENCODE_API_KEY to .env, start LM Studio, or add .rht_models.json.")
             provider = model = ""
         else:
             provider = st.selectbox("Provider", providers)
             if provider == "LM Studio (local)":
                 model = st.selectbox("Model", lm_studio_models)
+            elif provider == "RHT models.corp":
+                model = st.selectbox("Model", list(rht_model_keys.keys()))
             else:
                 model = st.selectbox("Model", OPENCODE_MODELS)
 
@@ -314,7 +334,7 @@ def render_nlq(
     api_msgs.append({"role": "user", "content": augmented})
 
     # Stream response
-    client = make_client(provider)
+    client = make_client(provider, model)
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_response = ""
