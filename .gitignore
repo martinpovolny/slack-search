@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.curl
+.env
+*.db
+~/.slack-search/

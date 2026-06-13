@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "slack-search"
+version = "0.1.0"
+description = "Download and search Slack messages with natural language queries"
+requires-python = ">=3.11"
+dependencies = [
+    "click>=8.1",
+    "slack-sdk>=3.27",
+    "openai>=1.30",
+    "rich>=13.7",
+    "python-dateutil>=2.9",
+    "requests>=2.31",
+    "streamlit>=1.35",
+    "python-dotenv>=1.2.2",
+    "watchdog>=6.0.0",
+]
+
+[project.scripts]
+slack-search = "slack_search.cli:cli"
+
+[tool.hatch.build.targets.wheel]
+packages = ["slack_search"]
