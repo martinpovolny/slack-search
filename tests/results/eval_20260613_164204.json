@@ -1,0 +1,401 @@
+{
+  "timestamp": "20260613_164204",
+  "prompt_file": "/Users/martinpovolny/Projects/slack-search/prompts/nl_to_sql.md",
+  "prompt_hash": "2d03f42f",
+  "summary": {
+    "total": 9,
+    "passed": 9,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "id": "count_messages",
+      "question": "how many messages are in the archive?",
+      "passed": true,
+      "mode": "table",
+      "sql": "SELECT COUNT(*) AS total_messages\nFROM messages;",
+      "nl_answer": null,
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": true,
+          "reason": "Mode is 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "count",
+          "passed": true,
+          "reason": "SQL contains: 'count'"
+        },
+        {
+          "name": "messages",
+          "passed": true,
+          "reason": "SQL contains: 'messages'"
+        }
+      ]
+    },
+    {
+      "id": "top_senders",
+      "question": "who sends the most messages?",
+      "passed": true,
+      "mode": "table",
+      "sql": "SELECT u.real_name, count(*) AS msgs\nFROM messages m JOIN users u ON m.user_id = u.id\nGROUP BY u.id ORDER BY msgs DESC LIMIT 50",
+      "nl_answer": null,
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": true,
+          "reason": "Mode is 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "count",
+          "passed": true,
+          "reason": "SQL contains: 'count'"
+        },
+        {
+          "name": "GROUP BY",
+          "passed": true,
+          "reason": "SQL contains: 'GROUP BY'"
+        },
+        {
+          "name": "ORDER BY",
+          "passed": true,
+          "reason": "SQL contains: 'ORDER BY'"
+        },
+        {
+          "name": "users",
+          "passed": true,
+          "reason": "SQL contains: 'users'"
+        }
+      ]
+    },
+    {
+      "id": "user_lookup_name_fields",
+      "question": "What are the topics that Luke (lcouzens) spoke about last Monday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%lcouzens%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')\nAND date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')\nLIMIT 100",
+      "nl_answer": "Luke (lcouzens) spoke about a completed bug fix (COST-7519) and a hike.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "lcouzens",
+          "passed": true,
+          "reason": "SQL contains: 'lcouzens'"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "real_name = 'Luke'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Luke'\""
+        },
+        {
+          "name": "real_name = \"Luke\"",
+          "passed": true,
+          "reason": "SQL correctly avoids: 'real_name = \"Luke\"'"
+        },
+        {
+          "name": "Monday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 6) % 7'"
+        },
+        {
+          "name": "Identify topics discussed, not 'no results'",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly lists specific topics (a bug fix and a hike) discussed by Luke."
+        },
+        {
+          "name": "Must not claim data lacks info about Luke",
+          "passed": true,
+          "reason": "[PASS] The answer provides concrete details about Luke's messages without stating the data is missing."
+        }
+      ]
+    },
+    {
+      "id": "last_friday",
+      "question": "What was happening last Friday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT u.real_name, m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 2) % 7) || ' days')\nORDER BY m.timestamp\nLIMIT 100",
+      "nl_answer": "Last Friday, several team members were discussing an issue with a customer's Azure integration, where the customer was unable to see cost metrics. The team determined that the issue was due to the Azure integration being configured with an export scope that was too narrow, and they advised the customer to change the scope to the subscription level. The team then waited to see if the issue would be resolved, and eventually, the customer confirmed that the files were present in the folder and the data was displayed on the Red Hat platform.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "Friday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 2) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Friday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "timestamp",
+          "passed": true,
+          "reason": "SQL contains: 'timestamp'"
+        },
+        {
+          "name": "Summarises events instead of echoing raw text",
+          "passed": true,
+          "reason": "[PASS] The response provides a coherent narrative summary of the discussion rather than listing raw message content."
+        },
+        {
+          "name": "Mentions specific topics, avoids 'no results'",
+          "passed": true,
+          "reason": "[PASS] The answer clearly details specific technical topics and activities discussed, avoiding any \"no results\" statement."
+        }
+      ]
+    },
+    {
+      "id": "weekly_topics",
+      "question": "what topics did the team discuss this week?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT u.real_name, m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nJOIN channels c ON m.channel_id = c.id\nWHERE timestamp >= unixepoch('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')\nAND c.name NOT LIKE '%random%' AND c.name NOT LIKE '%off-topic%'\nORDER BY m.timestamp DESC\nLIMIT 100",
+      "nl_answer": "The team discussed several topics this week, including:\n\n1. Issues with Azure integration and cost data not showing up in the cost management platform.\n2. Problems with OpenShift Container Platform (OCP) data not being uploaded to cost management.\n3. Configuration issues with Azure exports and storage accounts.\n4. Cross-subscription setups and the need to use the correct subscription ID in the wizard.\n5. Validation scripts and troubleshooting steps for Azure integrations.\n6. Jira tickets and cases related to cost management issues, such as COST-7673 and COST-7721.\n7. Team members' availability and work schedules, including sick leaves and medical appointments.\n8. New features and developments, such as the price list wizard and the constant currency feature.\n9. Documentation and knowledge sharing, including updates to the cost management documentation and the creation of new swimlanes on the team's board.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "timestamp",
+          "passed": true,
+          "reason": "SQL contains: 'timestamp'"
+        },
+        {
+          "name": "unixepoch",
+          "passed": true,
+          "reason": "SQL contains: 'unixepoch'"
+        },
+        {
+          "name": "Lists/summarises topics, not just authors",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly provides a numbered list of specific discussion topics rather than merely listing message authors or raw message text."
+        }
+      ]
+    },
+    {
+      "id": "user_weekly_summary",
+      "question": "create a summary of what Martin talked about in the last week",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text, datetime(m.timestamp, 'unixepoch') AS date, u.real_name\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%Martin%' OR u.real_name LIKE '%Martin%' OR u.display_name LIKE '%Martin%')\nAND m.timestamp > unixepoch('now', '-7 days')\nORDER BY m.timestamp DESC\nLIMIT 100",
+      "nl_answer": "Martin discussed the following topics in the last week:\n\n1. A run/hike experience where he lost track of time and was expected back earlier, causing his wife to be upset.\n2. A Strava activity, sharing a link to it.\n3. Git configuration and commands for setting up signed commits, including rebasing and logging.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "martin",
+          "passed": true,
+          "reason": "SQL contains: 'martin'"
+        },
+        {
+          "name": "real_name = 'Martin'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Martin'\""
+        },
+        {
+          "name": "last week filter",
+          "passed": true,
+          "reason": "SQL contains: '7 days'"
+        },
+        {
+          "name": "Summarise contributions, not list raw messages",
+          "passed": true,
+          "reason": "[PASS] The response provides a synthesized bulleted list of topics rather than quoting or pasting raw message text."
+        },
+        {
+          "name": "Must not claim no information about Martin",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly lists three discussion topics and does not state that data is missing."
+        }
+      ]
+    },
+    {
+      "id": "user_messages_count",
+      "question": "how many messages did Martin send in the last 2 weeks?",
+      "passed": true,
+      "mode": "table",
+      "sql": "SELECT count(*) AS msgs\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%Martin%' OR u.real_name LIKE '%Martin%' OR u.display_name LIKE '%Martin%')\nAND timestamp > unixepoch('now', '-14 days')\nLIMIT 50",
+      "nl_answer": null,
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": true,
+          "reason": "Mode is 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "count",
+          "passed": true,
+          "reason": "SQL contains: 'count'"
+        },
+        {
+          "name": "martin",
+          "passed": true,
+          "reason": "SQL contains: 'martin'"
+        },
+        {
+          "name": "2-week filter",
+          "passed": true,
+          "reason": "SQL contains: '14 days'"
+        },
+        {
+          "name": "real_name = 'Martin'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Martin'\""
+        }
+      ]
+    },
+    {
+      "id": "user_recent_activity",
+      "question": "what did David talk about last?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%David%' OR u.real_name LIKE '%David%' OR u.display_name LIKE '%David%')\nORDER BY m.timestamp DESC\nLIMIT 1",
+      "nl_answer": "David last talked about an export being changed to 'aro-actual-cost' and mentioned that the new export does not have Azure reports yet.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "david",
+          "passed": true,
+          "reason": "SQL contains: 'david'"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "real_name = 'David'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'David'\""
+        },
+        {
+          "name": "Answer describes David's discussion, not 'no results'.",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly details the subject of David's last message without indicating a lack of results."
+        }
+      ]
+    },
+    {
+      "id": "thursday_topics",
+      "question": "what are the top topics Luke talked about on Thursday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%Luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')\nAND date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 3) % 7) || ' days')\nLIMIT 100",
+      "nl_answer": "Based on the results, the top topics Luke talked about on Thursday (2026-06-11) include:\n\n1. Creating new swimlanes on the board for Docs and UI.\n2. Investigating an issue and offering to poke around in logs.\n3. Discussing a customer's problem with Azure exports and costs.\n4. Exchanging brief messages with others, such as apologizing for being slow due to a meeting and thanking someone (likely David).",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "luke",
+          "passed": true,
+          "reason": "SQL contains: 'luke'"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "Thursday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 3) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Thursday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "Answer describes topics, not missing data",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly lists four specific topics Luke discussed rather than stating that no data was found."
+        }
+      ]
+    }
+  ]
+}

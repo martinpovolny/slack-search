@@ -171,6 +171,7 @@ def run_eval(
     test_ids: list[str] | None = None,
     judge_client: OpenAI | None = None,
     judge_model: str | None = None,
+    prompt_path: Path | None = None,
 ) -> list[TestResult]:
     path = test_cases_path or (TESTS_DIR / "test_cases.yaml")
     cases = yaml.safe_load(path.read_text())
@@ -186,7 +187,7 @@ def run_eval(
         print(f"\n{'─'*60}")
         print(f"▶ [{case['id']}] {case['question']}")
 
-        qr = run_query(conn, case["question"], client, model)
+        qr = run_query(conn, case["question"], client, model, prompt_path=prompt_path)
 
         sql_checks = [_check_mode(qr, case.get("expected_mode", "table"))]
         sql_checks += _run_sql_checks(qr.sql, case.get("sql_checks", []))

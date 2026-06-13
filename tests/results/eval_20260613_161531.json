@@ -1,0 +1,58 @@
+{
+  "timestamp": "20260613_161531",
+  "prompt_file": "/Users/martinpovolny/Projects/slack-search/prompts/nl_to_sql.md",
+  "prompt_hash": "78d5fa2c",
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "id": "last_friday",
+      "question": "What was happening last Friday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT datetime(m.timestamp, 'unixepoch') AS time, u.real_name, c.name AS channel, m.text\nFROM messages m\nJOIN users u ON m.user_id = u.id\nJOIN channels c ON m.channel_id = c.id\nWHERE date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 2) % 7) || ' days')\nORDER BY m.timestamp\nLIMIT 100",
+      "nl_answer": "Last Friday, there were discussions and issues related to a customer's Azure integration with Cost Management. The customer was having trouble seeing cost metrics, and the team was troubleshooting the issue. They determined that the Azure integration was configured with an export scope that was too narrow, which was causing the problem. The team advised the customer to change the export scope to a subscription level, and they were waiting to see if this would resolve the issue. Additionally, some team members were out sick, with Pedro Lopez Perez and Lucas Bacciotti Moreira mentioning that they would be taking sick days.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "Friday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 2) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Friday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "timestamp",
+          "passed": true,
+          "reason": "SQL contains: 'timestamp'"
+        },
+        {
+          "name": "Summarise events, not echo raw message text",
+          "passed": true,
+          "reason": "[PASS] The response synthesizes the events into a coherent narrative rather than listing raw message text."
+        },
+        {
+          "name": "Mention specific topics, not say 'no results'",
+          "passed": true,
+          "reason": "[PASS] The answer clearly identifies specific topics and activities discussed on that day."
+        }
+      ]
+    }
+  ]
+}

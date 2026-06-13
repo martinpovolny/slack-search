@@ -150,6 +150,7 @@ Rules:
 - When filtering by a person's name, always match across all three user name fields with case-insensitive LIKE:
   `(u.name LIKE '%name%' OR u.real_name LIKE '%name%' OR u.display_name LIKE '%name%')`
   Never use exact equality (`=`) on a single name field for user lookups.
+- When filtering by a specific user, always include `u.real_name` in the SELECT so the synthesis step can see who sent each row — never return only `text` and `date` when a user filter is active.
 
 ## Response modes
 

@@ -1,0 +1,396 @@
+{
+  "timestamp": "20260613_162544",
+  "prompt_file": "/Users/martinpovolny/Projects/slack-search/prompts/nl_to_sql.md",
+  "prompt_hash": "78d5fa2c",
+  "summary": {
+    "total": 9,
+    "passed": 3,
+    "failed": 6
+  },
+  "tests": [
+    {
+      "id": "count_messages",
+      "question": "how many messages are in the archive?",
+      "passed": true,
+      "mode": "table",
+      "sql": "SELECT COUNT(*) AS total_messages\nFROM messages",
+      "nl_answer": null,
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": true,
+          "reason": "Mode is 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "count",
+          "passed": true,
+          "reason": "SQL contains: 'count'"
+        },
+        {
+          "name": "messages",
+          "passed": true,
+          "reason": "SQL contains: 'messages'"
+        }
+      ]
+    },
+    {
+      "id": "top_senders",
+      "question": "who sends the most messages?",
+      "passed": true,
+      "mode": "table",
+      "sql": "SELECT u.real_name, count(*) AS msgs\nFROM messages m JOIN users u ON m.user_id = u.id\nGROUP BY u.id ORDER BY msgs DESC LIMIT 50",
+      "nl_answer": null,
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": true,
+          "reason": "Mode is 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "count",
+          "passed": true,
+          "reason": "SQL contains: 'count'"
+        },
+        {
+          "name": "GROUP BY",
+          "passed": true,
+          "reason": "SQL contains: 'GROUP BY'"
+        },
+        {
+          "name": "ORDER BY",
+          "passed": true,
+          "reason": "SQL contains: 'ORDER BY'"
+        },
+        {
+          "name": "users",
+          "passed": true,
+          "reason": "SQL contains: 'users'"
+        }
+      ]
+    },
+    {
+      "id": "user_lookup_name_fields",
+      "question": "What are the topics that Luke (lcouzens) spoke about last Monday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%lcouzens%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')\nAND date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')\nLIMIT 100",
+      "nl_answer": "The SQL query results are actually for the date equivalent to last Saturday (Saturday, 2026-06-06), not last Monday. \n\nBased on the results, Luke (lcouzens) spoke about two topics: \n\n1. A bug fix completed by Yaron (COST-7519) and the possibility of verifying the backend or waiting for UI updates.\n2. A hike, likely in response to someone else's message or topic, expressing admiration for the hike and wishing they had a similar location nearby.",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "lcouzens",
+          "passed": true,
+          "reason": "SQL contains: 'lcouzens'"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "real_name = 'Luke'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Luke'\""
+        },
+        {
+          "name": "real_name = \"Luke\"",
+          "passed": true,
+          "reason": "SQL correctly avoids: 'real_name = \"Luke\"'"
+        },
+        {
+          "name": "Monday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 6) % 7'"
+        },
+        {
+          "name": "Identifies Luke's topics, avoids 'no results'/'unknown author'",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly lists two specific topics Luke discussed without stating there were no results or an unknown author."
+        },
+        {
+          "name": "Does not claim data lacks info about Luke",
+          "passed": true,
+          "reason": "[PASS] The answer directly references Luke's messages and summarizes his contributions, confirming the data contains information about him."
+        }
+      ]
+    },
+    {
+      "id": "last_friday",
+      "question": "What was happening last Friday?",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "Friday weekday offset",
+          "passed": false,
+          "reason": "SQL missing: '+ 2) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Friday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "timestamp",
+          "passed": false,
+          "reason": "SQL missing: 'timestamp'"
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    },
+    {
+      "id": "weekly_topics",
+      "question": "what topics did the team discuss this week?",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "timestamp",
+          "passed": false,
+          "reason": "SQL missing: 'timestamp'"
+        },
+        {
+          "name": "unixepoch",
+          "passed": false,
+          "reason": "SQL missing: 'unixepoch'"
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    },
+    {
+      "id": "user_weekly_summary",
+      "question": "create a summary of what Martin talked about in the last week",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "LIKE",
+          "passed": false,
+          "reason": "SQL missing: 'LIKE'"
+        },
+        {
+          "name": "martin",
+          "passed": false,
+          "reason": "SQL missing: 'martin'"
+        },
+        {
+          "name": "real_name = 'Martin'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Martin'\""
+        },
+        {
+          "name": "last week filter",
+          "passed": false,
+          "reason": "SQL missing: '7 days'"
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    },
+    {
+      "id": "user_messages_count",
+      "question": "how many messages did Martin send in the last 2 weeks?",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=table",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'table'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "count",
+          "passed": false,
+          "reason": "SQL missing: 'count'"
+        },
+        {
+          "name": "martin",
+          "passed": false,
+          "reason": "SQL missing: 'martin'"
+        },
+        {
+          "name": "2-week filter",
+          "passed": false,
+          "reason": "SQL missing: '14 days'"
+        },
+        {
+          "name": "real_name = 'Martin'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'Martin'\""
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    },
+    {
+      "id": "user_recent_activity",
+      "question": "what did David talk about last?",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "david",
+          "passed": false,
+          "reason": "SQL missing: 'david'"
+        },
+        {
+          "name": "LIKE",
+          "passed": false,
+          "reason": "SQL missing: 'LIKE'"
+        },
+        {
+          "name": "real_name = 'David'",
+          "passed": true,
+          "reason": "SQL correctly avoids: \"real_name = 'David'\""
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    },
+    {
+      "id": "thursday_topics",
+      "question": "what are the top topics Luke talked about on Thursday?",
+      "passed": false,
+      "mode": "error",
+      "sql": null,
+      "nl_answer": null,
+      "error": "Connection error.",
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": false,
+          "reason": "Mode is 'error', expected 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": false,
+          "reason": "No SQL found in response"
+        },
+        {
+          "name": "luke",
+          "passed": false,
+          "reason": "SQL missing: 'luke'"
+        },
+        {
+          "name": "LIKE",
+          "passed": false,
+          "reason": "SQL missing: 'LIKE'"
+        },
+        {
+          "name": "Thursday weekday offset",
+          "passed": false,
+          "reason": "SQL missing: '+ 3) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Thursday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "no_error",
+          "passed": false,
+          "reason": "Error: Connection error."
+        }
+      ]
+    }
+  ]
+}

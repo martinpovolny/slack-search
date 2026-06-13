@@ -15,6 +15,7 @@ from openai import OpenAI, APIConnectionError, APIStatusError
 from .search import run_sql
 
 PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "nl_to_sql.md"
+SYNTHESIS_PROMPT_PATH = Path(__file__).parent.parent / "prompts" / "synthesis.md"
 RHT_MODELS_FILE = Path(__file__).parent.parent / ".rht_models.json"
 
 MAX_LLM_ROWS = 100
@@ -150,20 +151,15 @@ def run_query(
 
     # ── Phase 2: synthesise ──────────────────────────────────────────────────
     rows_text = _df_to_markdown(result.df)
+    from datetime import date as _date
+    today_str = _date.today().strftime("%A, %Y-%m-%d")
+    synthesis_system = SYNTHESIS_PROMPT_PATH.read_text().replace("{today}", today_str)
 
     try:
         synthesis_response = client.chat.completions.create(
             model=model,
             messages=[
-                {"role": "system", "content": (
-                    "You are a helpful assistant analysing Slack archive query results. "
-                    "The SQL query was already run and the results below are the complete, "
-                    "correct dataset for answering the question — trust them fully. "
-                    "Use the SQL query to understand what the result rows represent "
-                    "(e.g. which user, channel, or time period was filtered). "
-                    "Do not speculate about missing data or caveat whether the right rows "
-                    "were returned. Answer the user's question directly and concisely."
-                )},
+                {"role": "system", "content": synthesis_system},
                 {"role": "user", "content": (
                     f"SQL query that produced these results:\n```sql\n{sql}\n```\n\n"
                     f"Query results:\n\n{rows_text}\n\n"

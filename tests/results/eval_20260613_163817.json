@@ -1,0 +1,58 @@
+{
+  "timestamp": "20260613_163817",
+  "prompt_file": "/Users/martinpovolny/Projects/slack-search/prompts/nl_to_sql.md",
+  "prompt_hash": "2d03f42f",
+  "summary": {
+    "total": 1,
+    "passed": 1,
+    "failed": 0
+  },
+  "tests": [
+    {
+      "id": "thursday_topics",
+      "question": "what are the top topics Luke talked about on Thursday?",
+      "passed": true,
+      "mode": "synthesise",
+      "sql": "SELECT m.text, datetime(m.timestamp, 'unixepoch') AS date\nFROM messages m\nJOIN users u ON m.user_id = u.id\nWHERE (u.name LIKE '%Luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')\nAND date(m.timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 3) % 7) || ' days')\nLIMIT 100",
+      "nl_answer": "Based on the results, the top topics Luke talked about on Thursday (2026-06-11) include:\n\n1. Creating new swimlanes on the board for Docs and UI.\n2. Investigating an issue and offering to poke around in logs.\n3. Discussing a customer's problem with Azure exports and costs.\n4. Exchanging brief messages with others, such as apologizing for being slow due to a meeting and thanking someone (likely David).",
+      "error": null,
+      "checks": [
+        {
+          "name": "mode=synthesise",
+          "passed": true,
+          "reason": "Mode is 'synthesise'"
+        },
+        {
+          "name": "SQL generated",
+          "passed": true,
+          "reason": "SQL was generated"
+        },
+        {
+          "name": "luke",
+          "passed": true,
+          "reason": "SQL contains: 'luke'"
+        },
+        {
+          "name": "LIKE",
+          "passed": true,
+          "reason": "SQL contains: 'LIKE'"
+        },
+        {
+          "name": "Thursday weekday offset",
+          "passed": true,
+          "reason": "SQL contains: '+ 3) % 7'"
+        },
+        {
+          "name": "must NOT use Monday offset for Thursday",
+          "passed": true,
+          "reason": "SQL correctly avoids: '+ 6) % 7'"
+        },
+        {
+          "name": "Answer describes topics, not missing data",
+          "passed": true,
+          "reason": "[PASS] The answer explicitly lists four specific topics Luke discussed, directly addressing the prompt without claiming the data lacks information about him."
+        }
+      ]
+    }
+  ]
+}

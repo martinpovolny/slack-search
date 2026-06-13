@@ -1,0 +1,53 @@
+{
+  "url_template": "https://{model}--apicast-production.apps.int.stc.ai.prod.us-east-1.aws.paas.redhat.com:443/v1",
+  "models": {
+    "llama-3-3-70b-instruct-fp8-dynamic": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
+    },
+    "qwen3-14b": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "Qwen/Qwen3-14B"
+    },
+    "gpt-oss-20b": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "openai/gpt-oss-20b"
+    },
+    "granite-3-3-8b-instruct": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-3.3-8b-instruct"
+    },
+    "granite-3-2-8b-instruct": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-3.2-8b-instruct"
+    },
+    "granite-3-1-8b-instruct": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-3.1-8b-instruct"
+    },
+    "granite-4-0-micro": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-4.0-micro"
+    },
+    "granite-4-0-h-small": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-4.0-h-small"
+    },
+    "granite-4-0-h-tiny": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-4.0-h-tiny"
+    },
+    "granite-guardian-3-3-8b": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-guardian-3.3-8b"
+    },
+    "granite-guardian-3-2-5b": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "ibm-granite/granite-guardian-3.2-5b"
+    },
+    "mistral-7b-instruct-v0-3": {
+      "key": "YOUR_API_KEY",
+      "api_model_id": "mistralai/Mistral-7B-Instruct-v0.3"
+    }
+  }
+}
