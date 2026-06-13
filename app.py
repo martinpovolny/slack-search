@@ -93,9 +93,14 @@ def api_model_id(provider: str, model: str) -> str:
 
 
 def _http_client() -> httpx.Client | None:
-    """Return an httpx client configured with a proxy if HTTPS_PROXY/ALL_PROXY is set."""
+    """Return an httpx client with proxy and/or SSL verification disabled if configured."""
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
-    return httpx.Client(proxy=proxy) if proxy else None
+    verify = os.getenv("SSL_NO_VERIFY", "").lower() not in ("1", "true", "yes")
+    if proxy:
+        return httpx.Client(proxy=proxy, verify=verify)
+    if not verify:
+        return httpx.Client(verify=False)
+    return None
 
 
 def make_client(provider: str, model: str = "") -> OpenAI:

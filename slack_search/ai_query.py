@@ -55,7 +55,12 @@ def load_rht_config(model_name: str) -> tuple[str, str, str]:
 
 def _http_client() -> httpx.Client | None:
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
-    return httpx.Client(proxy=proxy) if proxy else None
+    verify = os.getenv("SSL_NO_VERIFY", "").lower() not in ("1", "true", "yes")
+    if proxy:
+        return httpx.Client(proxy=proxy, verify=verify)
+    if not verify:
+        return httpx.Client(verify=False)
+    return None
 
 
 def ask(
