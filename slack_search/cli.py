@@ -450,21 +450,52 @@ def grep_cmd(
         console.print("[yellow]No matches found.[/]")
         return
 
+    # Build a user-id → display name map for mention resolution
+    mention_re = _re.compile(r'<@([A-Z0-9]+)(?:\|[^>]*)?>')
+    all_uids = {
+        m.group(1)
+        for row in results
+        for m in mention_re.finditer(row.get("text") or "")
+    }
+    user_map: dict[str, str] = {}
+    if all_uids:
+        placeholders = ",".join("?" * len(all_uids))
+        rows = conn.execute(
+            f"SELECT id, COALESCE(real_name, display_name, name, id) AS name "
+            f"FROM users WHERE id IN ({placeholders})",
+            list(all_uids),
+        ).fetchall()
+        user_map = {r[0]: r[1] for r in rows}
+
     # Build highlight regex
     if fixed_string:
         hl_re = _re.compile(_re.escape(fixed_string), _re.IGNORECASE)
     else:
         hl_re = _re.compile(pattern, _re.IGNORECASE)
 
-    def highlight(text: str) -> Text:
+    def _highlight_segment(segment: str) -> Text:
+        """Apply search highlight to a plain-text segment."""
         t = Text()
         last = 0
-        for m in hl_re.finditer(text or ""):
-            t.append(text[last:m.start()])
-            t.append(text[m.start():m.end()], style="bold yellow on dark_red")
+        for m in hl_re.finditer(segment):
+            t.append(segment[last:m.start()])
+            t.append(segment[m.start():m.end()], style="bold yellow on dark_red")
             last = m.end()
-        t.append(text[last:])
+        t.append(segment[last:])
         return t
+
+    def render_message(text: str) -> Text:
+        """Resolve <@U…> mentions (bold magenta) and highlight search matches."""
+        result = Text()
+        last = 0
+        for m in mention_re.finditer(text):
+            result.append_text(_highlight_segment(text[last:m.start()]))
+            uid = m.group(1)
+            name = user_map.get(uid, uid)
+            result.append(f"@{name}", style="bold magenta")
+            last = m.end()
+        result.append_text(_highlight_segment(text[last:]))
+        return result
 
     def render(out: _Console) -> None:
         out.print(f"[dim]{len(results)} match(es)[/]\n")
@@ -473,7 +504,7 @@ def grep_cmd(
             out.print(
                 f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]{thread_mark}"
             )
-            out.print(highlight(row["text"] or ""))
+            out.print(render_message(row["text"] or ""))
             out.print()
 
     if pager:
