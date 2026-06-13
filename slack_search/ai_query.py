@@ -1,9 +1,11 @@
 import json
+import os
 import sqlite3
 import re
 from pathlib import Path
 from typing import Optional
 
+import httpx
 import pandas as pd
 from openai import OpenAI
 
@@ -51,6 +53,11 @@ def load_rht_config(model_name: str) -> tuple[str, str, str]:
     return base_url, api_key, api_model_id
 
 
+def _http_client() -> httpx.Client | None:
+    proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
+    return httpx.Client(proxy=proxy) if proxy else None
+
+
 def ask(
     conn: sqlite3.Connection,
     question: str,
@@ -63,9 +70,10 @@ def ask(
     from rich.table import Table
 
     console = Console()
-    console.print(f"[dim]Querying {model} at {base_url}…[/]")
+    http = _http_client()
+    console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http else ''}…[/]")
 
-    client = OpenAI(base_url=base_url, api_key=api_key)
+    client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
 
     # ── Phase 1: NL → SQL ────────────────────────────────────────────────────
     response = client.chat.completions.create(

@@ -6,6 +6,8 @@ import sqlite3
 import os
 from pathlib import Path
 
+import httpx
+
 import pandas as pd
 import streamlit as st
 from dotenv import load_dotenv
@@ -90,16 +92,24 @@ def api_model_id(provider: str, model: str) -> str:
     return model
 
 
+def _http_client() -> httpx.Client | None:
+    """Return an httpx client configured with a proxy if HTTPS_PROXY/ALL_PROXY is set."""
+    proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
+    return httpx.Client(proxy=proxy) if proxy else None
+
+
 def make_client(provider: str, model: str = "") -> OpenAI:
+    http = _http_client()
+    kwargs = {"http_client": http} if http else {}
     if provider == "OpenCode.ai":
-        return OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL)
+        return OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL, **kwargs)
     if provider == "LM Studio (local)":
-        return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL)
+        return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL, **kwargs)
     if provider == "RHT models.corp":
         url_template, model_keys = _load_rht_models()
         base_url = url_template.format(model=model)
         api_key = model_keys.get(model, "")
-        return OpenAI(api_key=api_key, base_url=base_url)
+        return OpenAI(api_key=api_key, base_url=base_url, **kwargs)
     raise ValueError(f"Unknown provider: {provider}")
 
 
