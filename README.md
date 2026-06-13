@@ -91,6 +91,30 @@ uv run slack-search search \
    ORDER BY reply_count DESC LIMIT 20"
 ```
 
+## Grep / search
+
+Search messages by literal string (`-F`) or regular expression (`-E`). All filters are optional and can be combined.
+
+```bash
+# Literal string, all channels, all time
+uv run slack-search grep -F "out of memory"
+
+# Regex across two channels, last two weeks
+uv run slack-search grep -E "error|warning" \
+  --channel cost-mgmt-dev --channel engineering \
+  --since "2 weeks ago"
+
+# Messages from a specific person in a date range
+uv run slack-search grep -F "budget" \
+  --person Martin \
+  --since 2024-01-01 --until 2024-02-01
+
+# Thread replies mentioning a pattern
+uv run slack-search grep -E "OCP|provider_uuid" --channel forum-cost-mgmt
+```
+
+Matches are highlighted in the output. The `-c/--channel` flag can be repeated for multiple channels. `-p/--person` does a partial, case-insensitive match against all name fields.
+
 ## LLM providers
 
 | Provider | How to configure |

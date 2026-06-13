@@ -30,4 +30,5 @@ packages = ["slack_search"]
 [dependency-groups]
 dev = [
     "playwright>=1.60.0",
+    "pytest>=9.1.0",
 ]

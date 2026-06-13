@@ -10,11 +10,12 @@ from rich.console import Console
 load_dotenv()
 
 from .database import open_db
-from .downloader import download
+from .downloader import download, _parse_since
 from .search import run_sql, show_schema
 from .ai_query import ask, load_rht_config
 from .eval import run_eval, save_results, print_summary, TESTS_DIR
 from .curl_parser import parse_curl
+from .grep import grep_messages
 
 console = Console()
 
@@ -381,7 +382,97 @@ def eval_cmd(
     print(f"\nResults saved to: {out}")
 
 
+@cli.command(name="grep")
+@click.option("-F", "--string", "fixed_string", default=None, metavar="TEXT",
+              help="Search for literal string (case-insensitive)")
+@click.option("-E", "--regexp", "pattern", default=None, metavar="PATTERN",
+              help="Search for regular expression (case-insensitive)")
+@click.option("-c", "--channel", "channels", multiple=True, metavar="CHANNEL",
+              help="Limit to channel name or ID (repeat for multiple, default: all)")
+@click.option("--since", default=None, metavar="DATE",
+              help="Only messages after this date (e.g. '2024-01-01', '3 weeks ago')")
+@click.option("--until", default=None, metavar="DATE",
+              help="Only messages before this date")
+@click.option("-p", "--person", default=None, metavar="NAME",
+              help="Filter by sender name (partial match)")
+@click.option("-n", "--limit", default=200, show_default=True,
+              help="Maximum number of results")
+@click.pass_context
+def grep_cmd(
+    ctx: click.Context,
+    fixed_string: Optional[str],
+    pattern: Optional[str],
+    channels: tuple,
+    since: Optional[str],
+    until: Optional[str],
+    person: Optional[str],
+    limit: int,
+) -> None:
+    """Search messages by string (-F) or regular expression (-E).
+
+    \b
+    Examples:
+      slack-search grep -F "out of memory"
+      slack-search grep -E "error|warning" --channel cost-mgmt-dev --since "last week"
+      slack-search grep -F "budget" --person Martin --since 2024-01-01 --until 2024-02-01
+    """
+    import re as _re
+    from rich.text import Text
+
+    if not fixed_string and not pattern:
+        raise click.UsageError("Provide -F/--string or -E/--regexp.")
+    if fixed_string and pattern:
+        raise click.UsageError("-F and -E are mutually exclusive.")
+
+    conn = ctx.obj["db"]
+
+    try:
+        results = grep_messages(
+            conn,
+            fixed_string=fixed_string,
+            pattern=pattern,
+            channels=channels,
+            since=_parse_since(since) if since else None,
+            until=_parse_since(until) if until else None,
+            person=person,
+            limit=limit,
+        )
+    except ValueError as e:
+        console.print(f"[red]Error:[/] {e}")
+        raise SystemExit(1)
+
+    if not results:
+        console.print("[yellow]No matches found.[/]")
+        return
+
+    # Build highlight regex
+    if fixed_string:
+        hl_re = _re.compile(_re.escape(fixed_string), _re.IGNORECASE)
+    else:
+        hl_re = _re.compile(pattern, _re.IGNORECASE)
+
+    def highlight(text: str) -> Text:
+        t = Text()
+        last = 0
+        for m in hl_re.finditer(text or ""):
+            t.append(text[last:m.start()])
+            t.append(text[m.start():m.end()], style="bold yellow on dark_red")
+            last = m.end()
+        t.append(text[last:])
+        return t
+
+    console.print(f"[dim]{len(results)} match(es)[/]\n")
+    for row in results:
+        thread_mark = " [dim]↳[/]" if row["thread_ts"] and row["thread_ts"] != row["ts"] else ""
+        console.print(
+            f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]{thread_mark}"
+        )
+        console.print(highlight(row["text"] or ""))
+        console.print()
+
+
 # Aliases
 cli.add_command(download_cmd, name="download")
 cli.add_command(eval_cmd, name="eval")
 cli.add_command(refresh, name="refresh")
+cli.add_command(grep_cmd, name="grep")
