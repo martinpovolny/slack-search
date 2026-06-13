@@ -76,6 +76,12 @@ WHERE text LIKE '%<@U...>%'
 -- Last N days
 WHERE timestamp > unixepoch('now', '-N days')
 
+-- Specific named weekday (SQLite weekday: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat)
+-- Days back to last Monday: (strftime('%w','now') + 6) % 7
+-- Use this pattern for ANY "last <weekday>" query:
+WHERE date(timestamp, 'unixepoch') = date('now', '-' || ((cast(strftime('%w','now') as integer) + 6) % 7) || ' days')
+-- Adjust the +6 offset: Mon=+6, Tue=+5, Wed=+4, Thu=+3, Fri=+2, Sat=+1, Sun=+0
+
 -- Finding a user by name (always search all name fields with LIKE, never exact-match a single field)
 -- Example for "Luke":
 WHERE (u.name LIKE '%luke%' OR u.real_name LIKE '%Luke%' OR u.display_name LIKE '%Luke%')
@@ -95,6 +101,8 @@ Rules:
 - Prefer readable output: join `users` to show `real_name`, join `channels` to show `name`.
 - Use `datetime(timestamp, 'unixepoch')` for human-readable dates.
 - Default `LIMIT 50` unless the user asks for more or an aggregate makes limits unnecessary.
+- Always filter timestamps with `timestamp >= unixepoch(...)` — never compare `datetime(timestamp,'unixepoch')` as a string; string comparison is slower and error-prone.
+- Never use SQLite's `weekday` modifier for "last <weekday>" queries — it advances to the *next* occurrence. Use the offset formula above instead.
 - If the question cannot be answered with the available data, say so clearly and briefly.
 - Do not invent columns or tables that are not in the schema.
 - When filtering by a person's name, always match across all three user name fields with case-insensitive LIKE:
