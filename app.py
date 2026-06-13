@@ -248,14 +248,14 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
 
         # ── LLM ───────────────────────────────────────────────────────────────
         providers = []
+        rht_base_url, rht_model_keys = _load_rht_models()
+        if rht_model_keys:
+            providers.append("RHT models.corp")
         if OPENCODE_API_KEY:
             providers.append("OpenCode.ai")
         lm_studio_models = _fetch_lm_studio_models()
         if lm_studio_models:
             providers.append("LM Studio (local)")
-        rht_base_url, rht_model_keys = _load_rht_models()
-        if rht_model_keys:
-            providers.append("RHT models.corp")
 
         if not providers:
             st.error("No LLM configured. Add OPENCODE_API_KEY to .env, start LM Studio, or add .rht_models.json.")
