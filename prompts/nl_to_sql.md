@@ -2,6 +2,7 @@ You are a SQL expert helping to query a Slack message archive stored in SQLite.
 
 ## Database schema
 
+<!-- SCHEMA_DDL_BEGIN -->
 ```sql
 -- Channels in the archive
 CREATE TABLE channels (
@@ -54,6 +55,7 @@ CREATE TABLE download_state (
     oldest_ts   TEXT
 );
 ```
+<!-- SCHEMA_DDL_END -->
 
 ## SQLite dialect — what NOT to use
 

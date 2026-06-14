@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 from slack_search.database import open_db_readonly
-from slack_search.slack_format import build_user_map, extract_uids, resolve_mentions
+from slack_search.slack_format import build_user_map, extract_uids, resolve_mentions, resolve_mentions_html, highlight_matches_html
 from slack_search.conversations_db import (
     CURRENT_USER,
     open_conversations_db,
@@ -531,21 +531,76 @@ def render_nlq(
 # ── Browse tab ────────────────────────────────────────────────────────────────
 
 def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
-    st.subheader("Recent messages")
+    import datetime as _dt
 
-    col1, col2 = st.columns([1, 3])
-    with col1:
-        limit = st.selectbox("Show", [25, 50, 100, 200], index=0)
-    with col2:
-        keyword = st.text_input("Filter text", placeholder="optional keyword…")
+    st.subheader("Browse messages")
 
-    where_parts, params = [], []
-    if channel_filter:
+    # ── Filter row 1: text search ──────────────────────────────────
+    fc1, fc2, fc3 = st.columns([4, 1, 1])
+    with fc1:
+        keyword = st.text_input("Search text", placeholder="leave empty for all messages…", label_visibility="collapsed")
+    with fc2:
+        use_regexp = st.checkbox("Regexp", value=False)
+    with fc3:
+        limit = st.selectbox("Rows", [25, 50, 100, 200], index=0)
+
+    # ── Filter row 2: channel, person, dates ───────────────────────
+    ch_rows = conn.execute(
+        "SELECT id, COALESCE(name, id) AS name FROM channels ORDER BY name"
+    ).fetchall()
+    ch_options = [r[1] for r in ch_rows]
+    ch_id_map = {r[1]: r[0] for r in ch_rows}
+
+    fc1, fc2, fc3, fc4 = st.columns([2, 1, 1, 1])
+    with fc1:
+        sel_channels = st.multiselect("Channels", ch_options, placeholder="all channels")
+    with fc2:
+        person = st.text_input("Person", placeholder="partial name…")
+    with fc3:
+        since_date = st.date_input("Since", value=None)
+    with fc4:
+        until_date = st.date_input("Until", value=None)
+
+    # ── Build query ────────────────────────────────────────────────
+    if use_regexp and keyword:
+        conn.create_function(
+            "regexp", 2,
+            lambda p, t: bool(re.search(p, t or "", re.IGNORECASE)),
+        )
+
+    where_parts: list[str] = []
+    params: list = []
+
+    if sel_channels:
+        ids = [ch_id_map[n] for n in sel_channels]
+        placeholders = ",".join("?" * len(ids))
+        where_parts.append(f"m.channel_id IN ({placeholders})")
+        params.extend(ids)
+    elif channel_filter:
         where_parts.append("m.channel_id = ?")
         params.append(channel_filter)
+
     if keyword:
-        where_parts.append("m.text LIKE ?")
-        params.append(f"%{keyword}%")
+        if use_regexp:
+            where_parts.append("m.text REGEXP ?")
+            params.append(keyword)
+        else:
+            where_parts.append("m.text LIKE ?")
+            params.append(f"%{keyword}%")
+
+    if since_date:
+        params.append(_dt.datetime.combine(since_date, _dt.time.min).timestamp())
+        where_parts.append("m.timestamp >= ?")
+    if until_date:
+        params.append(_dt.datetime.combine(until_date, _dt.time.max).timestamp())
+        where_parts.append("m.timestamp <= ?")
+
+    if person:
+        like = f"%{person}%"
+        where_parts.append(
+            "(u.name LIKE ? OR u.real_name LIKE ? OR u.display_name LIKE ? OR m.username LIKE ?)"
+        )
+        params.extend([like, like, like, like])
 
     where = ("WHERE " + " AND ".join(where_parts)) if where_parts else ""
     sql = f"""
@@ -567,13 +622,16 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     df = pd.read_sql_query(sql, conn, params=params)
 
     # Resolve <@UXXXXXXX> mentions to real names in the text column
+    user_map: dict[str, str] = {}
     if not df.empty:
         uids = extract_uids(df["text"].tolist())
         user_map = build_user_map(conn, uids)
+        df["_raw_text"] = df["text"]
         df["text"] = df["text"].apply(lambda t: resolve_mentions(t or "", user_map))
 
+    display_cols = [c for c in df.columns if not c.startswith("_")]
     event = st.dataframe(
-        df,
+        df[display_cols],
         width="stretch",
         height=400,
         on_select="rerun",
@@ -586,7 +644,10 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     if rows:
         row = df.iloc[rows[0]]
         st.markdown(f"**{row['time']}** · {row['author']} · #{row['channel']}")
-        st.markdown(f"<div style='font-size:20px; line-height:1.7'>{row['text']}</div>", unsafe_allow_html=True)
+        raw = row.get("_raw_text") or row["text"]
+        html_text = resolve_mentions_html(raw, user_map)
+        html_text = highlight_matches_html(html_text, keyword, use_regexp)
+        st.markdown(f"<div style='font-size:20px; line-height:1.7'>{html_text}</div>", unsafe_allow_html=True)
 
 
 # ── SQL tab ───────────────────────────────────────────────────────────────────

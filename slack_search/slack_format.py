@@ -39,6 +39,39 @@ def resolve_mentions(text: str, user_map: dict[str, str]) -> str:
     )
 
 
+def resolve_mentions_html(text: str, user_map: dict[str, str]) -> str:
+    """Replace <@UXXXXXXX> tokens with colored HTML spans (for unsafe_allow_html contexts)."""
+    if not text:
+        return text
+    return _MENTION_RE.sub(
+        lambda m: f'<span style="color:#9d4edd;font-weight:bold">@{user_map.get(m.group(1), m.group(1))}</span>',
+        text,
+    )
+
+
+def highlight_matches_html(text: str, keyword: str, use_regexp: bool = False) -> str:
+    """Wrap keyword/pattern matches in <mark> tags, skipping content inside HTML tags."""
+    if not keyword:
+        return text
+    pat = keyword if use_regexp else re.escape(keyword)
+    tag_re = re.compile(r"(<[^>]+>)")
+    parts = tag_re.split(text)  # alternates: plain-text, html-tag, plain-text, …
+    result = []
+    for i, part in enumerate(parts):
+        if i % 2 == 1:
+            result.append(part)
+        else:
+            result.append(
+                re.sub(
+                    pat,
+                    lambda m: f'<mark style="background:#f4d03f;color:#000;font-weight:bold">{m.group(0)}</mark>',
+                    part,
+                    flags=re.IGNORECASE,
+                )
+            )
+    return "".join(result)
+
+
 def resolve_mentions_in_texts(
     texts: list[str], conn: sqlite3.Connection
 ) -> list[str]:
