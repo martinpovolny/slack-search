@@ -171,9 +171,9 @@ def _slack_app_link(web_url: str) -> str:
     return f"slack://open?url={quote(web_url, safe='')}"
 
 
-def _cap_sql(sql: str) -> str:
-    """Wrap SQL in a subquery to hard-cap rows at MAX_LLM_ROWS."""
-    return f"SELECT * FROM ({sql.rstrip(';')}) _q LIMIT {MAX_LLM_ROWS}"
+def _cap_sql(sql: str, limit: int = MAX_LLM_ROWS) -> str:
+    """Wrap SQL in a subquery to cap rows sent to the LLM."""
+    return f"SELECT * FROM ({sql.rstrip(';')}) _q LIMIT {limit}"
 
 
 def _results_to_text(df: pd.DataFrame, conn: sqlite3.Connection | None = None) -> str:
@@ -496,6 +496,15 @@ def render_nlq(
                     }
                     st.rerun()
 
+    # Per-conversation row limit for synthesise mode
+    row_limit = st.selectbox(
+        "Max rows sent to LLM",
+        [100, 500, 1000],
+        index=[100, 500, 1000].index(st.session_state.get(f"row_limit_{cid}", MAX_LLM_ROWS)),
+        key=f"row_limit_sel_{cid}",
+    )
+    st.session_state[f"row_limit_{cid}"] = row_limit
+
     # Input
     prompt = st.chat_input("Ask anything about your Slack archive…")
     if not prompt:
@@ -565,7 +574,7 @@ def render_nlq(
                 st.code(sql, language="sql")
             try:
                 if synthesise:
-                    df = pd.read_sql_query(_cap_sql(sql), msg_conn)
+                    df = pd.read_sql_query(_cap_sql(sql, row_limit), msg_conn)
                     results_text = _results_to_text(df, msg_conn)
                     synthesis_msgs = [
                         {"role": "system", "content": load_synthesis_prompt()},
@@ -588,7 +597,7 @@ def render_nlq(
                             nl_answer += chunk.choices[0].delta.content
                             nl_placeholder.markdown(nl_answer + "▌")
                     nl_placeholder.markdown(nl_answer)
-                    st.caption(f"Based on {len(df)} row(s), capped at {MAX_LLM_ROWS}")
+                    st.caption(f"Based on {len(df)} row(s), capped at {row_limit}")
                 else:
                     log.info("Executing SQL (fresh): %s", sql[:120])
                     df = pd.read_sql_query(sql, msg_conn)
