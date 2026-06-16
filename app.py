@@ -482,7 +482,7 @@ def render_nlq(
                 with st.expander("Generated SQL"):
                     st.code(msg["sql"], language="sql")
             if "df" in msg:
-                st.dataframe(msg["df"], width="stretch", hide_index=True)
+                st.dataframe(msg["df"], width="stretch")
             # Show synthesis button for table-mode assistant messages without an NL answer
             if (msg["role"] == "assistant" and "sql" in msg and "df" in msg
                     and "nl_answer" not in msg and i > 0):
@@ -593,7 +593,7 @@ def render_nlq(
                     log.info("Executing SQL (fresh): %s", sql[:120])
                     df = pd.read_sql_query(sql, msg_conn)
                     log.info("Fresh SQL returned %d rows", len(df))
-                    st.dataframe(df, width="stretch", hide_index=True)
+                    st.dataframe(df, width="stretch")
                     st.caption(f"{len(df)} row(s)")
             except Exception as e:
                 log.error("SQL execution FAILED: %s\n%s", e, traceback.format_exc())
@@ -809,7 +809,7 @@ def render_sql(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     if st.button("Run", type="primary"):
         try:
             df = pd.read_sql_query(sql_input, conn)
-            st.dataframe(df, width="stretch", hide_index=True)
+            st.dataframe(df, width="stretch")
             st.caption(f"{len(df)} row(s)")
         except Exception as e:
             st.error(f"SQL error: {e}")
