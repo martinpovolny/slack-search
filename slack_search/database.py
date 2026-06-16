@@ -6,8 +6,9 @@ from typing import Optional
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS channels (
-    id   TEXT PRIMARY KEY,
-    name TEXT NOT NULL
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL,
+    subscribed INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -53,12 +54,25 @@ CREATE TABLE IF NOT EXISTS download_state (
 """
 
 
+def _migrate(conn: sqlite3.Connection) -> None:
+    """Apply incremental schema migrations that CREATE TABLE IF NOT EXISTS cannot handle."""
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(channels)")}
+    if "subscribed" not in cols:
+        conn.execute("ALTER TABLE channels ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 0")
+        # Auto-subscribe channels that have a download_state entry.
+        conn.execute(
+            "UPDATE channels SET subscribed=1 WHERE id IN (SELECT channel_id FROM download_state)"
+        )
+        conn.commit()
+
+
 def open_db(path: Path) -> sqlite3.Connection:
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    _migrate(conn)
     conn.commit()
     return conn
 
@@ -72,10 +86,16 @@ def open_db_readonly(path: Path) -> sqlite3.Connection:
 
 
 def upsert_channel(conn: sqlite3.Connection, channel_id: str, name: str) -> None:
+    # ON CONFLICT DO UPDATE preserves the existing subscribed value.
     conn.execute(
-        "INSERT OR REPLACE INTO channels(id, name) VALUES (?, ?)",
+        "INSERT INTO channels(id, name) VALUES (?, ?)"
+        " ON CONFLICT(id) DO UPDATE SET name=excluded.name",
         (channel_id, name),
     )
+
+
+def subscribe_channel(conn: sqlite3.Connection, channel_id: str) -> None:
+    conn.execute("UPDATE channels SET subscribed=1 WHERE id=?", (channel_id,))
 
 
 def lookup_channel_id(conn: sqlite3.Connection, name: str) -> Optional[str]:

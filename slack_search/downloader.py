@@ -8,6 +8,7 @@ from rich.console import Console
 from .slack_client import SlackClient
 from .database import (
     upsert_channel,
+    subscribe_channel,
     upsert_user,
     message_exists,
     insert_message,
@@ -199,6 +200,8 @@ def download(
         client, channel, hint_id=channel_id_hint, conn=conn
     )
     upsert_channel(conn, channel_id, channel_name)
+    subscribe_channel(conn, channel_id)
+    conn.commit()
 
     state = get_download_state(conn, channel_id)
     seen_users: set[str] = set()

@@ -224,9 +224,11 @@ def refresh(
         raise SystemExit(1)
 
     conn = ctx.obj["db"]
-    channels = conn.execute("SELECT id, name FROM channels ORDER BY name").fetchall()
+    channels = conn.execute(
+        "SELECT id, name FROM channels WHERE subscribed=1 ORDER BY name"
+    ).fetchall()
     if not channels:
-        console.print("[yellow]No channels in database. Run 'download' first to add channels.[/]")
+        console.print("[yellow]No subscribed channels. Run 'download' first to subscribe to channels.[/]")
         return
 
     dest = None if no_files else Path(files_dir)
@@ -251,7 +253,7 @@ def refresh(
         except Exception as e:
             console.print(f"  [red]✗ Error:[/] {e}")
 
-    console.print(f"\n[green]Done.[/] {total_new} new message(s) across {len(channels)} channel(s).")
+    console.print(f"\n[green]Done.[/] {total_new} new message(s) across {len(channels)} subscribed channel(s).")
 
 
 @cli.command()
