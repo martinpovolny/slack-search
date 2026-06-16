@@ -16,6 +16,7 @@ from .ai_query import ask, load_rht_config
 from .eval import run_eval, save_results, print_summary, TESTS_DIR
 from .curl_parser import parse_curl
 from .grep import grep_messages
+from .slack_search_api import run_slack_search, extract_highlight_term
 
 console = Console()
 
@@ -505,6 +506,127 @@ def grep_cmd(
                 f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]{thread_mark}"
             )
             out.print(render_message(row["text"] or ""))
+            out.print()
+
+    if pager:
+        with console.pager(styles=True):
+            render(console)
+    else:
+        render(console)
+
+
+@cli.command(name="live-search")
+@click.argument("query")
+@click.option("--curl", "curl_command", envvar="SLACK_CURL", default=None, metavar="CURL",
+              help="'Copy as cURL' command from Chrome DevTools")
+@click.option("--token", envvar="SLACK_TOKEN", default=None, help="Slack token")
+@click.option("--cookie", envvar="SLACK_COOKIE", default=None, help="Value of the 'd' cookie (xoxc- only)")
+@click.option("--workspace", envvar="SLACK_WORKSPACE", default=None, help="Workspace hostname")
+@click.option("-n", "--limit", default=50, show_default=True, help="Maximum number of results")
+@click.option("-P", "--pager", is_flag=True, default=False, help="Page output with colours preserved")
+@click.pass_context
+def live_search_cmd(
+    ctx: click.Context,
+    query: str,
+    curl_command: Optional[str],
+    token: Optional[str],
+    cookie: Optional[str],
+    workspace: Optional[str],
+    limit: int,
+    pager: bool,
+) -> None:
+    """Search Slack directly using the built-in search API and cache results locally.
+
+    \b
+    Supports Slack search operators:
+      in:#channel  from:@user  before:YYYY-MM-DD  after:YYYY-MM-DD  "exact phrase"
+    \b
+    Examples:
+      slack-search live-search "out of memory"
+      slack-search live-search 'error in:#cost-mgmt-dev after:2024-01-01'
+      slack-search live-search '"budget cut"' -n 20
+    """
+    import re as _re
+    from rich.text import Text
+    from rich.console import Console as _Console
+
+    raw_cookies: Optional[str] = None
+    if curl_command:
+        try:
+            creds = parse_curl(curl_command)
+        except ValueError as e:
+            console.print(f"[red]Could not parse curl command:[/] {e}")
+            raise SystemExit(1)
+        token = token or creds.token
+        cookie = cookie or creds.cookie
+        workspace = workspace or creds.workspace
+        raw_cookies = creds.raw_cookies
+
+    if not token:
+        console.print("[red]Error:[/] No token. Pass --token, set SLACK_TOKEN, or use --curl.")
+        raise SystemExit(1)
+
+    from .slack_client import SlackClient
+    client = SlackClient(token=token, cookie=cookie, workspace=workspace, raw_cookies=raw_cookies)
+
+    conn = ctx.obj["db"]
+    console.print(f"[dim]Searching Slack for:[/] [bold]{query}[/]")
+    try:
+        results = run_slack_search(conn, client, query, limit=limit)
+    except Exception as e:
+        console.print(f"[red]Search error:[/] {e}")
+        raise SystemExit(1)
+
+    if not results:
+        console.print("[yellow]No results.[/]")
+        return
+
+    hl_term = extract_highlight_term(query)
+    hl_re = _re.compile(_re.escape(hl_term), _re.IGNORECASE) if hl_term else None
+
+    mention_re = _re.compile(r'<@([A-Z0-9]+)(?:\|[^>]*)?>')
+    all_uids = {m.group(1) for row in results for m in mention_re.finditer(row.get("text") or "")}
+    user_map: dict[str, str] = {}
+    if all_uids:
+        placeholders = ",".join("?" * len(all_uids))
+        rows = conn.execute(
+            f"SELECT id, COALESCE(real_name, display_name, name, id) AS name "
+            f"FROM users WHERE id IN ({placeholders})",
+            list(all_uids),
+        ).fetchall()
+        user_map = {r[0]: r[1] for r in rows}
+
+    def _highlight(segment: str) -> Text:
+        if not hl_re:
+            return Text(segment)
+        t = Text()
+        last = 0
+        for m in hl_re.finditer(segment):
+            t.append(segment[last:m.start()])
+            t.append(segment[m.start():m.end()], style="bold yellow on dark_red")
+            last = m.end()
+        t.append(segment[last:])
+        return t
+
+    def _render_text(text: str) -> Text:
+        result = Text()
+        last = 0
+        for m in mention_re.finditer(text):
+            result.append_text(_highlight(text[last:m.start()]))
+            result.append(f"@{user_map.get(m.group(1), m.group(1))}", style="bold magenta")
+            last = m.end()
+        result.append_text(_highlight(text[last:]))
+        return result
+
+    def render(out: _Console) -> None:
+        out.print(f"[dim]{len(results)} result(s)[/]\n")
+        for row in results:
+            out.print(
+                f"[cyan]{row['time']}[/]  [green]{row['channel']}[/]  [bold]{row['author']}[/]"
+            )
+            out.print(_render_text(row["text"] or ""))
+            if row.get("permalink"):
+                out.print(f"[dim]{row['permalink']}[/]")
             out.print()
 
     if pager:

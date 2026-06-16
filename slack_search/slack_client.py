@@ -77,3 +77,6 @@ class SlackClient:
 
     def users_info(self, user: str) -> dict:
         return self._post("users.info", user=user)
+
+    def search_messages(self, query: str, count: int = 50, page: int = 1, **kw: Any) -> dict:
+        return self._post("search.messages", query=query, count=count, page=page, **kw)

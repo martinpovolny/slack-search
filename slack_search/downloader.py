@@ -304,4 +304,28 @@ def download(
             console.print(f"[cyan]Downloading #{channel_name} ({label})…[/]")
             process_batch(_iter_history(client, channel_id, oldest=oldest_arg))
 
+    # Enrich any user records in this channel that are missing real_name.
+    # This catches users introduced by live-search caching (minimal records)
+    # whose messages were already in the DB and therefore skipped store_message.
+    incomplete = conn.execute(
+        """
+        SELECT DISTINCT m.user_id
+        FROM messages m
+        LEFT JOIN users u ON m.user_id = u.id
+        WHERE m.channel_id = ?
+          AND m.user_id IS NOT NULL
+          AND (u.id IS NULL OR u.real_name IS NULL)
+        """,
+        (channel_id,),
+    ).fetchall()
+    if incomplete:
+        console.print(f"  [dim]Enriching {len(incomplete)} incomplete user record(s)…[/]")
+        for (uid,) in incomplete:
+            try:
+                data = client.users_info(user=uid)
+                upsert_user(conn, data["user"])
+            except Exception:
+                pass
+        conn.commit()
+
     return new_count

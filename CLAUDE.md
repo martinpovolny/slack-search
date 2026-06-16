@@ -29,6 +29,10 @@ LLM_BASE_URL=https://api.opencode.ai/v1 LLM_MODEL=... uv run slack-search nlq "w
 uv run streamlit run app.py
 ```
 
+## README maintenance
+
+**Always update `README.md`** when adding a new CLI subcommand or making a significant change to existing commands or the web UI. Add or update the relevant section so the README stays the authoritative reference for users.
+
 ## Testing after every edit
 
 After any code change, run the relevant check before considering the task done:
@@ -64,15 +68,18 @@ After any code change, run the relevant check before considering the task done:
 
 ```
 slack_search/
-  cli.py          — click CLI entry point
-  curl_parser.py  — parses Chrome DevTools "Copy as cURL" output
-  slack_client.py — raw HTTP Slack API client (POST form-body auth)
-  downloader.py   — channel resolution, pagination, thread fetching
-  database.py     — SQLite schema and CRUD
-  search.py       — SQL runner + schema documentation
-  ai_query.py     — NL → SQL via OpenAI-compatible API
-app.py            — Streamlit web UI
-.curl             — saved curl command for credentials (gitignored)
+  cli.py              — click CLI entry point
+  curl_parser.py      — parses Chrome DevTools "Copy as cURL" output
+  slack_client.py     — raw HTTP Slack API client (POST form-body auth)
+  downloader.py       — channel resolution, pagination, thread fetching
+  database.py         — SQLite schema and CRUD
+  search.py           — SQL runner + schema documentation
+  ai_query.py         — NL → SQL via OpenAI-compatible API
+  grep.py             — full-text / regexp search over local archive
+  slack_search_api.py — Slack built-in search (search.messages) + local caching
+  slack_format.py     — shared text formatting (mention resolution, highlighting)
+app.py                — Streamlit web UI
+.curl                 — saved curl command for credentials (gitignored)
 ```
 
 ## Environment variables

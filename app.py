@@ -13,8 +13,9 @@ import streamlit as st
 from dotenv import load_dotenv
 from openai import OpenAI
 
-from slack_search.database import open_db_readonly
+from slack_search.database import open_db, open_db_readonly
 from slack_search.slack_format import build_user_map, extract_uids, resolve_mentions, resolve_mentions_html, highlight_matches_html
+from slack_search.slack_search_api import run_slack_search, extract_highlight_term
 from slack_search.conversations_db import (
     CURRENT_USER,
     open_conversations_db,
@@ -147,6 +148,21 @@ def make_client(provider: str, model: str = "") -> OpenAI:
     raise ValueError(f"Unknown provider: {provider}")
 
 
+def _slack_permalink(workspace: str, channel_id: str, ts: str, thread_ts: str | None = None) -> str:
+    """Build a Slack web URL from channel_id + ts (no API call needed)."""
+    ts_nodot = ts.replace(".", "")
+    url = f"https://{workspace}/archives/{channel_id}/p{ts_nodot}"
+    if thread_ts and thread_ts != ts:
+        url += f"?thread_ts={thread_ts}&ctype=thread"
+    return url
+
+
+def _slack_app_link(web_url: str) -> str:
+    """Convert a Slack https:// URL to a slack:// deep-link that opens the desktop app."""
+    from urllib.parse import quote
+    return f"slack://open?url={quote(web_url, safe='')}"
+
+
 def _cap_sql(sql: str) -> str:
     """Wrap SQL in a subquery to hard-cap rows at MAX_LLM_ROWS."""
     return f"SELECT * FROM ({sql.rstrip(';')}) _q LIMIT {MAX_LLM_ROWS}"
@@ -201,12 +217,35 @@ def _generate_title(client: OpenAI, model: str, question: str, answer: str) -> s
         return question[:60]
 
 
+# ── Slack client helpers ──────────────────────────────────────────────────────
+
+def _make_slack_client_from_env():
+    """Build a SlackClient from env vars, or None if no token is set."""
+    from slack_search.slack_client import SlackClient
+    token = os.getenv("SLACK_TOKEN", "").strip()
+    if not token:
+        return None
+    cookie = os.getenv("SLACK_COOKIE", "").strip() or None
+    workspace = os.getenv("SLACK_WORKSPACE", "").strip() or None
+    return SlackClient(token=token, cookie=cookie, workspace=workspace)
+
+
+def _make_slack_client_from_curl(curl_path: str):
+    """Build a SlackClient by parsing a saved curl command file."""
+    from slack_search.curl_parser import parse_curl
+    from slack_search.slack_client import SlackClient
+    text = Path(curl_path).read_text()
+    creds = parse_curl(text)
+    return SlackClient(token=creds.token, workspace=creds.workspace, raw_cookies=creds.raw_cookies), creds.workspace
+
+
 # ── Cached DB connections ─────────────────────────────────────────────────────
 
 @st.cache_resource
 def get_messages_conn(path: str) -> sqlite3.Connection | None:
     p = Path(path)
     return open_db_readonly(p) if p.exists() else None
+
 
 
 @st.cache_resource
@@ -221,7 +260,7 @@ st.set_page_config(page_title="Slack Search", page_icon="🔍", layout="wide")
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 
-def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | None, str | None, str, str]:
+def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | None, str | None, str, str, str]:
     with st.sidebar:
         st.title("🔍 Slack Search")
 
@@ -306,11 +345,44 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
                 model = st.selectbox("Model", OPENCODE_MODELS)
 
         st.divider()
+
+        # ── Live search credentials ───────────────────────────────────────────
+        st.subheader("Live search")
+        # Auto-init: env vars first, then fall back to .curl file if it exists
+        if "slack_client" not in st.session_state:
+            client = _make_slack_client_from_env()
+            if client:
+                st.session_state["slack_client"] = client
+                st.session_state["slack_workspace"] = os.getenv("SLACK_WORKSPACE", "slack.com")
+            elif Path(".curl").exists():
+                try:
+                    client, workspace = _make_slack_client_from_curl(".curl")
+                    st.session_state["slack_client"] = client
+                    st.session_state["slack_workspace"] = workspace
+                except Exception:
+                    pass
+
+        if "slack_client" in st.session_state:
+            ws = st.session_state.get("slack_workspace", "")
+            st.caption(f"Connected: {ws or 'slack.com'}")
+
+        curl_path = st.text_input(".curl file", value=".curl", label_visibility="collapsed",
+                                  placeholder=".curl file path…")
+        if st.button("Load credentials", use_container_width=True):
+            try:
+                client, workspace = _make_slack_client_from_curl(curl_path)
+                st.session_state["slack_client"] = client
+                st.session_state["slack_workspace"] = workspace
+                st.rerun()
+            except Exception as e:
+                st.error(f"Failed: {e}")
+
+        st.divider()
         from slack_search.search import SCHEMA_DESCRIPTION
         with st.expander("Schema reference"):
             st.code(SCHEMA_DESCRIPTION, language="")
 
-    return msg_conn, channel_filter, provider, model
+    return msg_conn, channel_filter, provider, model, db_path
 
 
 # ── NL Query tab ─────────────────────────────────────────────────────────────
@@ -610,7 +682,10 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
             COALESCE(u.real_name, u.display_name, m.username, m.user_id, '(bot)') AS author,
             CASE WHEN m.thread_ts IS NOT NULL AND m.thread_ts != m.ts
                  THEN '↳ ' ELSE '' END || m.text AS text,
-            m.reply_count
+            m.reply_count,
+            m.ts         AS _ts,
+            m.channel_id AS _channel_id,
+            m.thread_ts  AS _thread_ts
         FROM messages m
         LEFT JOIN users u ON m.user_id = u.id
         LEFT JOIN channels c ON m.channel_id = c.id
@@ -629,13 +704,34 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
         df["_raw_text"] = df["text"]
         df["text"] = df["text"].apply(lambda t: resolve_mentions(t or "", user_map))
 
+    # Build Slack deep-links: encode permalink+time into the time column itself so
+    # a LinkColumn with display_text regex can show the time while linking to Slack.
+    workspace = st.session_state.get("slack_workspace", "")
+    if workspace and not df.empty:
+        df["_slack"] = df.apply(
+            lambda r: _slack_permalink(workspace, r["_channel_id"], r["_ts"], r.get("_thread_ts")),
+            axis=1,
+        )
+        df["time"] = df["_slack"].apply(_slack_app_link) + "#" + df["time"]
+
     display_cols = [c for c in df.columns if not c.startswith("_")]
+    col_cfg: dict = {
+        "channel":     st.column_config.TextColumn("Channel",   width="small"),
+        "author":      st.column_config.TextColumn("Author",    width="small"),
+        "reply_count": st.column_config.NumberColumn("Replies", width="small"),
+    }
+    if workspace and not df.empty:
+        col_cfg["time"] = st.column_config.LinkColumn("Time", display_text=r"#(.+)", width="small")
+    else:
+        col_cfg["time"] = st.column_config.TextColumn("Time", width="small")
+
     event = st.dataframe(
         df[display_cols],
         width="stretch",
         height=400,
         on_select="rerun",
         selection_mode="single-row",
+        column_config=col_cfg,
     )
 
     rows = event.selection.rows if event and event.selection else []
@@ -643,11 +739,35 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
 
     if rows:
         row = df.iloc[rows[0]]
-        st.markdown(f"**{row['time']}** · {row['author']} · #{row['channel']}")
         raw = row.get("_raw_text") or row["text"]
         html_text = resolve_mentions_html(raw, user_map)
         html_text = highlight_matches_html(html_text, keyword, use_regexp)
-        st.markdown(f"<div style='font-size:20px; line-height:1.7'>{html_text}</div>", unsafe_allow_html=True)
+        web_url = row.get("_slack", "")
+        time_display = str(row["time"]).split("#")[-1] if "#" in str(row["time"]) else str(row["time"])
+        channel_id = row.get("_channel_id", "")
+        channel_html = f"#{row['channel']}"
+        if workspace and channel_id:
+            ch_app = _slack_app_link(f"https://{workspace}/archives/{channel_id}")
+            channel_html = f'<a href="{ch_app}" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
+        links_html = ""
+        if web_url:
+            app_url = _slack_app_link(web_url)
+            links_html = (
+                f' &nbsp;<a href="{app_url}" style="font-size:12px;color:#9d4edd;text-decoration:none">🖥 app</a>'
+                f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">↗ browser</a>'
+            )
+        st.markdown(
+            f"""<div style="border-left:4px solid #9d4edd;border-radius:0 6px 6px 0;
+                            padding:14px 20px;margin-top:8px;
+                            background:rgba(157,78,221,0.06)">
+              <div style="font-size:12px;color:#888;margin-bottom:10px">
+                <b>{time_display}</b> &nbsp;·&nbsp; {row['author']} &nbsp;·&nbsp; {channel_html}
+                {links_html}
+              </div>
+              <div style="font-size:18px;line-height:1.8">{html_text}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
 
 # ── SQL tab ───────────────────────────────────────────────────────────────────
@@ -674,11 +794,156 @@ def render_sql(conn: sqlite3.Connection, channel_filter: str | None) -> None:
             st.error(f"SQL error: {e}")
 
 
+# ── Slack Search tab ─────────────────────────────────────────────────────────
+
+def render_slack_search(db_path: str) -> None:
+    st.subheader("Slack Search")
+
+    slack_client = st.session_state.get("slack_client")
+    if not slack_client:
+        st.info(
+            "No Slack credentials configured. Load a `.curl` file in the sidebar "
+            "or set `SLACK_TOKEN` / `SLACK_WORKSPACE` in your `.env`."
+        )
+        return
+    if not Path(db_path).exists():
+        st.error("No archive database — run a download first.")
+        return
+
+    # ── Search form ───────────────────────────────────────────────────────────
+    # st.text_input triggers a rerun on Enter (and on blur). We detect "Enter
+    # pressed" by comparing the current value against the last submitted query.
+    # This avoids st.form which would also fire the sidebar's first button.
+    fc1, fc2, fc3 = st.columns([5, 1, 1])
+    with fc1:
+        query = st.text_input(
+            "Query",
+            key="slack_search_input",
+            placeholder='e.g.  "out of memory"  or  error in:#cost-mgmt-dev after:2024-01-01',
+            label_visibility="collapsed",
+        )
+    with fc2:
+        limit = st.selectbox("Results", [25, 50, 100], index=1, label_visibility="collapsed")
+    with fc3:
+        search_clicked = st.button("Search Slack", type="primary", use_container_width=True)
+
+    # Run search on button click OR when the query text changes (Enter / blur)
+    last_submitted = st.session_state.get("_slack_last_submitted", "")
+    should_search = bool(query) and (search_clicked or query != last_submitted)
+
+    if should_search:
+        st.session_state["_slack_last_submitted"] = query
+        with st.spinner("Searching Slack…"):
+            last_exc: Exception | None = None
+            results = None
+            for attempt in range(3):
+                try:
+                    import time as _time
+                    if attempt:
+                        _time.sleep(2 * attempt)
+                    rw_conn = open_db(Path(db_path))
+                    try:
+                        results = run_slack_search(rw_conn, slack_client, query, limit=limit)
+                    finally:
+                        rw_conn.close()
+                    last_exc = None
+                    break
+                except Exception as e:
+                    last_exc = e
+            if last_exc is not None:
+                st.error(f"Search error: {last_exc}")
+                st.session_state.pop("slack_search_results", None)
+                st.session_state.pop("slack_search_query", None)
+                return
+        st.session_state["slack_search_results"] = results
+        st.session_state["slack_search_query"] = query
+        st.rerun()
+
+    results: list[dict] = st.session_state.get("slack_search_results", [])
+    query_used: str = st.session_state.get("slack_search_query", "")
+
+    if not results:
+        if query_used:
+            st.info("No results.")
+        return
+
+    # ── Build display DataFrame ───────────────────────────────────────────────
+    import pandas as _pd
+    df = _pd.DataFrame(results)
+
+    ro_conn = get_messages_conn(db_path)
+    uids = extract_uids(df["text"].tolist())
+    user_map = build_user_map(ro_conn, uids) if ro_conn else {}
+    df["_raw_text"] = df["text"]
+    df["text"] = df["text"].apply(lambda t: resolve_mentions(t or "", user_map))
+    df["_slack"] = df["permalink"].fillna("")
+    # Encode app deep-link into the time column as a URL fragment so LinkColumn can
+    # show the time as display text while the cell opens the Slack desktop app.
+    df["time"] = df.apply(
+        lambda r: (_slack_app_link(r["_slack"]) + "#" + r["time"]) if r["_slack"] else r["time"],
+        axis=1,
+    )
+
+    display_cols = ["time", "channel", "author", "text"]
+    st.caption(f"{len(df)} result(s) for: **{query_used}**  —  new messages cached in local DB")
+
+    event = st.dataframe(
+        df[display_cols],
+        width="stretch",
+        height=400,
+        on_select="rerun",
+        selection_mode="single-row",
+        column_config={
+            "time":    st.column_config.LinkColumn("Time",    display_text=r"#(.+)", width="small"),
+            "channel": st.column_config.TextColumn("Channel", width="small"),
+            "author":  st.column_config.TextColumn("Author",  width="small"),
+            "text":    st.column_config.TextColumn("Message", width="large"),
+        },
+    )
+
+    # ── Detail panel ──────────────────────────────────────────────────────────
+    rows = event.selection.rows if event and event.selection else []
+    st.caption("Click a row to read the full message below")
+    if rows:
+        row = df.iloc[rows[0]]
+        raw = row.get("_raw_text") or row["text"]
+        html_text = resolve_mentions_html(raw, user_map)
+        hl_term = extract_highlight_term(query_used)
+        html_text = highlight_matches_html(html_text, hl_term)
+        web_url = row.get("_slack", "")
+        time_display = str(row["time"]).split("#")[-1] if "#" in str(row["time"]) else str(row["time"])
+        search_workspace = st.session_state.get("slack_workspace", "")
+        channel_id = row.get("channel_id", "")
+        channel_html = f"#{row['channel']}"
+        if search_workspace and channel_id:
+            ch_app = _slack_app_link(f"https://{search_workspace}/archives/{channel_id}")
+            channel_html = f'<a href="{ch_app}" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
+        links_html = ""
+        if web_url:
+            app_url = _slack_app_link(web_url)
+            links_html = (
+                f' &nbsp;<a href="{app_url}" style="font-size:12px;color:#9d4edd;text-decoration:none">🖥 app</a>'
+                f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">↗ browser</a>'
+            )
+        st.markdown(
+            f"""<div style="border-left:4px solid #9d4edd;border-radius:0 6px 6px 0;
+                            padding:14px 20px;margin-top:8px;
+                            background:rgba(157,78,221,0.06)">
+              <div style="font-size:12px;color:#888;margin-bottom:10px">
+                <b>{time_display}</b> &nbsp;·&nbsp; {row['author']} &nbsp;·&nbsp; {channel_html}
+                {links_html}
+              </div>
+              <div style="font-size:18px;line-height:1.8">{html_text}</div>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     conv_conn = get_conv_conn()
-    msg_conn, channel_filter, provider, model = render_sidebar(conv_conn)
+    msg_conn, channel_filter, provider, model, db_path = render_sidebar(conv_conn)
 
     if msg_conn is None:
         st.info("Set the archive database path in the sidebar and run a download first.")
@@ -689,10 +954,11 @@ def main() -> None:
         )
         return
 
-    tab_nlq, tab_browse, tab_sql = st.tabs([
+    tab_nlq, tab_browse, tab_sql, tab_search = st.tabs([
         "💬 Ask in natural language",
         "📋 Browse messages",
         "🛠 SQL query",
+        "🔍 Slack Search",
     ])
 
     with tab_nlq:
@@ -703,6 +969,9 @@ def main() -> None:
 
     with tab_sql:
         render_sql(msg_conn, channel_filter)
+
+    with tab_search:
+        render_slack_search(db_path)
 
 
 if __name__ == "__main__":

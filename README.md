@@ -124,6 +124,31 @@ Add `-P` / `--pager` to page through results with colours preserved (equivalent 
 uv run slack-search grep -E "error|warning" --channel cost-mgmt-dev -P
 ```
 
+## Live search (Slack built-in search)
+
+`live-search` queries Slack's own search API and caches any new messages into the local database, making them available for future SQL and NLQ queries.
+
+```bash
+# Search using credentials from .curl (Enterprise Slack)
+uv run slack-search live-search --curl "$(cat .curl)" "out of memory"
+
+# Slack search operators are supported
+uv run slack-search live-search --curl "$(cat .curl)" \
+  'error in:#cost-mgmt-dev after:2024-01-01'
+
+# Exact phrase, custom result count, paged output
+uv run slack-search live-search --curl "$(cat .curl)" '"budget cut"' -n 20 -P
+
+# If SLACK_TOKEN / SLACK_WORKSPACE are already set in .env
+uv run slack-search live-search "out of memory"
+```
+
+Supported Slack search operators: `in:#channel`, `from:@user`, `before:YYYY-MM-DD`, `after:YYYY-MM-DD`, `"exact phrase"`.
+
+New messages found by the search are inserted into the local database via `INSERT OR IGNORE` — they never interfere with incremental channel downloads.
+
+The web UI exposes this as the **🔍 Slack Search** tab. Load credentials in the sidebar (`.curl` file path or `SLACK_TOKEN` env var), then type a query and click **Search Slack**. Results show with match highlighting and an **Open in Slack ↗** permalink for each message.
+
 ## LLM providers
 
 | Provider | How to configure |
