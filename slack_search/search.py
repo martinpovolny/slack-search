@@ -13,7 +13,8 @@ messages(ts TEXT, channel_id TEXT, user_id TEXT, username TEXT, text TEXT,
   - timestamp: Unix epoch float (same value as ts, for range comparisons)
   - text: message body
 
-channels(id TEXT, name TEXT)
+channels(id TEXT, name TEXT, subscribed INTEGER)
+  - subscribed: 1 if the channel was explicitly downloaded, 0 if only seen via live-search
 
 users(id TEXT, name TEXT, real_name TEXT, display_name TEXT)
 

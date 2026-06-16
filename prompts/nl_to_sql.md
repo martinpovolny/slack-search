@@ -6,8 +6,9 @@ You are a SQL expert helping to query a Slack message archive stored in SQLite.
 ```sql
 -- Channels in the archive
 CREATE TABLE channels (
-    id   TEXT PRIMARY KEY,   -- Slack channel ID, e.g. C04476G1F7H
-    name TEXT NOT NULL       -- channel name without #, e.g. cost-mgmt-dev
+    id         TEXT PRIMARY KEY,  -- Slack channel ID, e.g. C04476G1F7H
+    name       TEXT NOT NULL,     -- channel name without #, e.g. cost-mgmt-dev
+    subscribed INTEGER NOT NULL DEFAULT 0  -- 1 = explicitly downloaded; 0 = seen via live-search only
 );
 
 -- Slack workspace members
