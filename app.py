@@ -1,10 +1,18 @@
 """Slack Search — Streamlit web UI."""
 
 import json
+import logging
 import re
 import sqlite3
 import os
+import traceback
 from pathlib import Path
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+log = logging.getLogger("slack_search.app")
 
 import httpx
 
@@ -244,7 +252,12 @@ def _make_slack_client_from_curl(curl_path: str):
 @st.cache_resource
 def get_messages_conn(path: str) -> sqlite3.Connection | None:
     p = Path(path)
-    return open_db_readonly(p) if p.exists() else None
+    if not p.exists():
+        log.warning("DB not found at %s", path)
+        return None
+    conn = open_db_readonly(p)
+    log.info("Opened readonly connection to %s (id=%s)", path, id(conn))
+    return conn
 
 
 
@@ -389,12 +402,16 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
 
 def _hydrate_messages(messages: list[dict], conn: sqlite3.Connection | None) -> list[dict]:
     """Re-run saved SQL to restore DataFrames after loading from DB."""
+    log.debug("_hydrate_messages: %d messages, conn=%s", len(messages), id(conn) if conn else None)
     for msg in messages:
         if "sql" in msg and "df" not in msg and conn:
+            sql = msg["sql"]
+            log.debug("Hydrating SQL: %s", sql[:120])
             try:
-                msg["df"] = pd.read_sql_query(msg["sql"], conn)
-            except Exception:
-                pass
+                msg["df"] = pd.read_sql_query(sql, conn)
+                log.info("Hydrated OK: %d rows", len(msg["df"]))
+            except Exception as exc:
+                log.error("Hydration FAILED: %s\nSQL: %s\n%s", exc, sql, traceback.format_exc())
     return messages
 
 
@@ -417,6 +434,7 @@ def render_nlq(
 
     # Load messages from DB if not yet in session (first load or conversation switched)
     if st.session_state.get("nlq_messages") is None:
+        log.info("Loading conversation %s, msg_conn=%s", cid, id(msg_conn) if msg_conn else None)
         raw = load_messages(conv_conn, cid)
         st.session_state.nlq_messages = _hydrate_messages(raw, msg_conn)
 
@@ -464,7 +482,7 @@ def render_nlq(
                 with st.expander("Generated SQL"):
                     st.code(msg["sql"], language="sql")
             if "df" in msg:
-                st.dataframe(msg["df"], width="stretch")
+                st.dataframe(msg["df"], width="stretch", hide_index=True)
             # Show synthesis button for table-mode assistant messages without an NL answer
             if (msg["role"] == "assistant" and "sql" in msg and "df" in msg
                     and "nl_answer" not in msg and i > 0):
@@ -572,10 +590,13 @@ def render_nlq(
                     nl_placeholder.markdown(nl_answer)
                     st.caption(f"Based on {len(df)} row(s), capped at {MAX_LLM_ROWS}")
                 else:
+                    log.info("Executing SQL (fresh): %s", sql[:120])
                     df = pd.read_sql_query(sql, msg_conn)
-                    st.dataframe(df, width="stretch")
+                    log.info("Fresh SQL returned %d rows", len(df))
+                    st.dataframe(df, width="stretch", hide_index=True)
                     st.caption(f"{len(df)} row(s)")
             except Exception as e:
+                log.error("SQL execution FAILED: %s\n%s", e, traceback.format_exc())
                 st.error(f"SQL error: {e}")
 
     # Store the NL answer when synthesised, otherwise the (marker-stripped) SQL response
@@ -788,7 +809,7 @@ def render_sql(conn: sqlite3.Connection, channel_filter: str | None) -> None:
     if st.button("Run", type="primary"):
         try:
             df = pd.read_sql_query(sql_input, conn)
-            st.dataframe(df, width="stretch")
+            st.dataframe(df, width="stretch", hide_index=True)
             st.caption(f"{len(df)} row(s)")
         except Exception as e:
             st.error(f"SQL error: {e}")
