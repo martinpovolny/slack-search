@@ -34,7 +34,7 @@ Once you have downloaded one or more channels, you can update all of them in one
 uv run slack-search refresh --curl "$(cat .curl)" --no-files
 ```
 
-This reads every channel stored in the database and fetches new messages since the last run for each one. Accepts the same credential options as `download`.
+This fetches new messages for every *subscribed* channel (i.e. channels you have explicitly `download`-ed). Channels that appear in the database only because they were touched by `live-search` are excluded. Accepts the same credential options as `download`.
 
 ### Standard Slack (xoxp- / xoxb- token)
 
@@ -48,7 +48,7 @@ SLACK_TOKEN=xoxp-... uv run slack-search download --channel general --since "202
 uv run streamlit run app.py
 ```
 
-Open http://localhost:8501. Select a provider and model in the sidebar, then ask questions in the **Ask in natural language** tab.
+Open http://localhost:8501. Select a provider and model in the sidebar, then ask questions in the **Ask in natural language** tab. A **Max rows sent to LLM** selector (100 / 500 / 1000) above the chat input controls how many result rows are passed to the model during synthesis; the default is 100.
 
 ## Example queries
 

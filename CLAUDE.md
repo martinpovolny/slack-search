@@ -19,11 +19,17 @@ uv run slack-search download --curl "$(cat .curl)" --channel cost-mgmt-dev --sin
 # Download (plain Slack with xoxp- token)
 SLACK_TOKEN=xoxp-... uv run slack-search download --channel general --since "2024-01-01"
 
-# Raw SQL search
+# Refresh all subscribed channels (incremental, only channels explicitly downloaded)
+uv run slack-search refresh --curl "$(cat .curl)" --no-files
+
+# Raw SQL search (color Rich table output)
 uv run slack-search search "SELECT u.real_name, count(*) FROM messages m JOIN users u ON m.user_id=u.id GROUP BY u.id ORDER BY 2 DESC LIMIT 10"
 
-# Natural language query
+# Natural language query (color output; synthesise mode sends results back to LLM for a plain-English answer)
 LLM_BASE_URL=https://api.opencode.ai/v1 LLM_MODEL=... uv run slack-search nlq "who sends the most messages?"
+
+# Live search against Slack's own search API (caches results locally)
+uv run slack-search live-search --curl "$(cat .curl)" "out of memory"
 
 # Web UI
 uv run streamlit run app.py
@@ -63,6 +69,9 @@ After any code change, run the relevant check before considering the task done:
 - **Channel resolution**: `conversations.list` is banned in Enterprise Slack. Resolution order: (1) direct channel ID, (2) DB cache from a previous run, (3) `hint_id` from the curl payload, (4) `conversations.list` with a friendly error if restricted.
 - **Rate limiting**: hard cap of 1 req/s enforced in `SlackClient._throttle()`; retries on HTTP 429 with `Retry-After`.
 - **Cursor stored**: `download_state` table tracks `latest_ts` / `oldest_ts` per channel so reruns are incremental by default.
+- **Subscribed channels**: `channels.subscribed=1` marks channels explicitly downloaded via `download`. `live-search` caches messages from any channel but does NOT set `subscribed`. `refresh` only iterates subscribed channels so live-search results don't pollute the refresh list. Schema migration in `database._migrate()` auto-subscribes channels that already have `download_state`.
+- **SQLite concurrency**: The web UI opens a short-lived read-write connection per search operation (not a long-lived cached connection) so the CLI `download`/`refresh` commands are never blocked. The read-only connection used for browse/NLQ display is cached via `@st.cache_resource`. Search has 3-attempt retry with 2 s / 4 s backoff on lock errors.
+- **NLQ synthesise mode**: When the LLM response starts with `[SYNTHESISE]`, `ai_query.run_query()` caps the SQL results at `MAX_LLM_ROWS` (default 100) and sends them back to the LLM for a natural-language answer. The cap is configurable per-conversation in the web UI (100/500/1000).
 
 ## File layout
 
