@@ -99,7 +99,17 @@ def _http_client() -> httpx.Client | None:
     proxy = os.getenv("HTTPS_PROXY") or os.getenv("ALL_PROXY")
     verify = os.getenv("SSL_NO_VERIFY", "").lower() not in ("1", "true", "yes")
     if proxy:
-        return httpx.Client(proxy=proxy, verify=verify)
+        # Always bypass proxy for localhost so Ollama/LM Studio work even when
+        # ALL_PROXY is set for corporate network access.
+        no_proxy_hosts = {"localhost", "127.0.0.1", "[::1]"}
+        extra = os.getenv("NO_PROXY", "")
+        if extra:
+            no_proxy_hosts.update(h.strip() for h in extra.split(",") if h.strip())
+        mounts: dict = {"all://": httpx.HTTPTransport(proxy=proxy, verify=verify)}
+        direct = httpx.HTTPTransport(verify=verify)
+        for host in no_proxy_hosts:
+            mounts[f"all://{host}"] = direct
+        return httpx.Client(mounts=mounts)
     if not verify:
         return httpx.Client(verify=False)
     return None
@@ -240,7 +250,8 @@ def ask(
 
     console = Console()
     http = _http_client()
-    console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http else ''}…[/]")
+    _is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "[::1]"))
+    console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http and not _is_local else ''}…[/]")
 
     client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
     result = run_query(conn, question, client, model, prompt_path)
