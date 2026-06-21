@@ -11,6 +11,7 @@ README.local.md
 .playwright-mcp/
 tests/results/
 *.png
+!docs/**/*.png
 docs/.markdown-viewer-temp.html
 .markdown-viewer-temp.html
 .claude/settings.local.json
