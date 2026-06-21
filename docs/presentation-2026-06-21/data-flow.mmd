@@ -1,0 +1,26 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor": "#dbeafe", "primaryTextColor": "#1a3a5c", "primaryBorderColor": "#2c6fad", "lineColor": "#2c6fad", "secondaryColor": "#eff6ff", "tertiaryColor": "#fafafa"}}}%%
+flowchart LR
+    subgraph SRC["Slack"]
+        direction TB
+        ENT["Enterprise Slack\nbrowser curl + cookies"]
+        STD["Standard Slack\nxoxp- token"]
+    end
+
+    subgraph STORE["Local archive\n~/.slack-search/messages.db"]
+        direction TB
+        MSG["messages · threads"]
+        USR["users · channels"]
+        STATE["download_state\n(incremental sync)"]
+    end
+
+    subgraph QUERY["Query"]
+        direction TB
+        GREP["grep\nregex / full-text"]
+        SQL["SQL\nraw SQLite"]
+        NLQ["NLQ\nNL → SQL → synthesise"]
+    end
+
+    ENT -->|"slack-search download\n/ refresh"| STORE
+    STD -->|"slack-search download\n/ refresh"| STORE
+    SRC -->|"live-search\n(Slack search API)"| STORE
+    STORE --> GREP & SQL & NLQ
