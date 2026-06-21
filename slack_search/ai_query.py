@@ -142,6 +142,15 @@ def run_query(
         result.mode = "error"
         result.error = str(e)
         return result
+    except Exception as e:
+        result.mode = "error"
+        result.error = f"API error: {e}"
+        return result
+
+    if not hasattr(response, "choices") or not response.choices:
+        result.mode = "error"
+        result.error = f"Unexpected API response type: {type(response).__name__}"
+        return result
 
     raw = response.choices[0].message.content
     result.raw_response = raw
@@ -183,8 +192,13 @@ def run_query(
             ],
             temperature=0,
         )
-        result.nl_answer = synthesis_response.choices[0].message.content
+        if hasattr(synthesis_response, "choices") and synthesis_response.choices:
+            result.nl_answer = synthesis_response.choices[0].message.content
+        else:
+            result.error = f"Synthesis: unexpected response type: {type(synthesis_response).__name__}"
     except (APIConnectionError, APIStatusError) as e:
+        result.error = f"Synthesis error: {e}"
+    except Exception as e:
         result.error = f"Synthesis error: {e}"
 
     return result

@@ -90,7 +90,7 @@ The `--curl` flag parses the full Chrome DevTools curl command:
 Regex / full-text over local archive.
 
 ```bash
-slack-search grep \
+slack-search grep -E \
   "out.of.memory|OOMKill"
 ```
 
@@ -211,9 +211,7 @@ export LLM_MODEL=<model-from-portal>
 | **llama.cpp** | Maximum control, low RAM options |
 | **LM Studio** | GUI, good for non-CLI users |
 
-![h:180 center](screenshot-lmstudio.png)
-
-*(screenshot placeholder)*
+<a href="screenshot-lmstudio.png" target="_blank"><img src="screenshot-lmstudio.png" style="height:180px; display:block; margin:0 auto;"></a>
 
 </div>
 </div>
