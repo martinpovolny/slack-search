@@ -108,7 +108,7 @@ blockquote { border-left: 4px solid #2c6fad; color: #444; }
 <li>Full history locked behind a slow UI with primitive keyword search</li>
 <li>No cross-channel queries, no aggregations, no date arithmetic</li>
 <li>Enterprise Slack restricts API access — <code>conversations.list</code> is banned</li>
-<li>Messages scroll off awareness: &quot;we discussed this 6 months ago&quot; → lost</li>
+<li>Old discussions vanish from team memory: &quot;we discussed this 6 months ago&quot; → lost</li>
 </ul>
 <p><strong>What if you could ask:</strong></p>
 <blockquote>
@@ -385,8 +385,7 @@ LIMIT 10&quot;</span>
 <p>Natural language → SQL.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">LLM_BASE_URL=... \
 slack-search nlq \
-  <span class="hljs-string">&quot;who sends the most
-   messages this month?&quot;</span>
+  <span class="hljs-string">&quot;who sends the most messages this month?&quot;</span>
 </code></pre>
 <p>LLM generates SQL, executes it, returns results.</p>
 <p><strong>Synthesise mode:</strong> results sent back to LLM for a plain-English answer.</p>

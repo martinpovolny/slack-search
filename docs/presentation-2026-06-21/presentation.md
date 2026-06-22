@@ -44,7 +44,7 @@ Slack search is limited — especially on Enterprise:
 - Full history locked behind a slow UI with primitive keyword search
 - No cross-channel queries, no aggregations, no date arithmetic
 - Enterprise Slack restricts API access — `conversations.list` is banned
-- Messages scroll off awareness: "we discussed this 6 months ago" → lost
+- Old discussions vanish from team memory: "we discussed this 6 months ago" → lost
 
 **What if you could ask:**
 > *"What did the team say about OOM errors in the last 3 months?"*
@@ -178,8 +178,7 @@ Natural language → SQL.
 ```bash
 LLM_BASE_URL=... \
 slack-search nlq \
-  "who sends the most
-   messages this month?"
+  "who sends the most messages this month?"
 ```
 
 LLM generates SQL, executes it, returns results.
