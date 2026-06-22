@@ -61,6 +61,52 @@ Slack search is limited — especially on Enterprise:
 
 ---
 
+<!-- _class: backup -->
+
+## [ optional ] What is RAG?
+
+<div class="columns">
+<div>
+
+**RAG — Retrieval-Augmented Generation** grounds LLM answers in real data rather than training memory.
+
+**Classic pipeline:**
+
+1. **Retrieve** — find relevant documents (vector search, SQL, keyword…)
+2. **Augment** — prepend them to the LLM prompt as context
+3. **Generate** — LLM produces an answer grounded in what was retrieved
+
+> Without retrieval, the LLM answers from training memory — stale, hallucination-prone, and blind to your private data.
+
+**Why it works:** LLMs are excellent at reading, summarising, and reasoning over text they are *given*. RAG feeds them the right text at query time.
+
+</div>
+<div>
+
+**How slack-search implements it:**
+
+```
+User: "What did we decide about GCP quotas last month?"
+         ↓
+① RETRIEVE
+   SQL query → 47 matching messages from local SQLite
+         ↓
+② AUGMENT
+   Messages prepended to LLM prompt as context
+         ↓
+③ GENERATE
+   LLM synthesises a plain-English answer
+```
+
+The `[SYNTHESISE]` mode is RAG with **SQL as the retrieval layer** — no vector database required.
+
+SQL retrieval is exact and auditable: every claim in the answer traces back to a real Slack message.
+
+</div>
+</div>
+
+---
+
 ## Enterprise Slack Auth — The Tricky Part
 
 Enterprise Slack rejects standard API tokens in the `Authorization` header.
@@ -76,7 +122,7 @@ The `--curl` flag parses the full Chrome DevTools curl command:
 - Extracts **all** session cookies (not just `d=xoxd-…`)
 - Sends them as a `Cookie` header on every POST — exactly as the browser does
 
-> One-time setup: open Slack in Chrome → DevTools → Network tab → copy any API request as cURL → save to `.curl`.
+> Setup: open Slack in Chrome → DevTools → Network tab → copy any API request as cURL → save to `.curl`. Session cookies expire — re-export when downloads start failing.
 
 ---
 
@@ -147,6 +193,14 @@ Best for: **exploratory questions**, non-SQL users.
 
 ---
 
+## grep — Color Highlights in the Terminal
+
+<a href="slack-search-cli-search.png" target="_blank"><img src="slack-search-cli-search.png" style="height:440px; display:block; margin:0 auto;"></a>
+
+*Regex search for OOM errors — instant, no LLM, color-highlighted matches with context lines.*
+
+---
+
 ## NLQ — Natural Language to SQL
 
 The LLM receives the database schema and generates SQL from a plain question.
@@ -171,6 +225,22 @@ Answer: "Last month cost-mgmt-dev focused on three themes:
   (2) Budget alert thresholds — a spike of 23 messages on Jun 11 after an alert fired,
   (3) Discussion of spot vs on-demand instance cost tradeoffs (ongoing, 8 participants)."
 ```
+
+---
+
+## NLQ — In the Terminal
+
+<a href="screenshot-nlq-terminal.png" target="_blank"><img src="screenshot-nlq-terminal.png" style="height:440px; display:block; margin:0 auto;"></a>
+
+*"who has sent the most messages in cost-mgmt-dev this month?" — LLM generates the SQL (with date filter), executes it, returns the table.*
+
+---
+
+## NLQ — Synthesise Mode (Web UI)
+
+<a href="screenshot-web-synthesise.png" target="_blank"><img src="screenshot-web-synthesise.png" style="height:440px; display:block; margin:0 auto;"></a>
+
+*Plain-English summary first, generated SQL and raw rows below — full transparency on how the answer was produced.*
 
 ---
 
@@ -273,7 +343,7 @@ User: /search-slack "kubernetes OOMKill cost-mgmt namespace"
 
 ## Quality Loop — `/analyze-chat`
 
-`.claude/commands/analyze-chat.md` — same "LLM as a Judge" pattern as dictpert.
+`.claude/commands/analyze-chat.md` — LLM as a Judge applied to SQL generation quality.
 
 When a NLQ answer looks wrong, invoke `/analyze-chat <conversation-id>`:
 
@@ -289,7 +359,7 @@ Issues found:
 🟢 User name filter looks correct
 ```
 
-**The same eval → fix → re-run loop as dictpert, applied to SQL generation quality.**
+**The same eval → fix → re-run loop, applied to SQL generation quality.**
 
 ---
 
@@ -303,7 +373,7 @@ Three query modes: **grep · SQL · NLQ** — from instant regex to plain-Englis
 
 Privacy-first: runs against **RHT IT Inference API** (company data stays internal) or fully local with Ollama / LM Studio.
 
-Slash command integration brings **institutional memory into any Claude Code session**.
+Slash command integration brings **institutional memory into any coding agent session**.
 
 > Slack discussions are institutional knowledge.
 > slack-search makes that knowledge searchable, queryable,

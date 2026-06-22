@@ -52,7 +52,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h1 id="slack-search">slack-search</h1>
 <h2 id="local-slack-archive-with-sql-and-natural-language-search">Local Slack Archive with SQL and Natural Language Search</h2>
 <p>Martin Povolný — 2026-06-21</p>
@@ -101,7 +101,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="the-problem">The Problem</h2>
 <p>Slack search is limited — especially on Enterprise:</p>
 <ul>
@@ -161,12 +161,12 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="data-flow">Data Flow</h2>
 <p><img src="data-flow.svg" alt="center" style="height:440px;" /></p>
 <p><strong>Incremental sync:</strong> <code>download_state</code> table tracks latest timestamp per channel — reruns only fetch new messages.</p>
 </section>
-</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-paginate="true" data-theme="default" data-style="section {
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-paginate="true" data-class="backup" data-theme="default" data-style="section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -188,7 +188,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-" lang="en-US" data-marpit-pagination="4" style="--paginate:true;--theme:default;--style:section {
+" lang="en-US" class="backup" data-marpit-pagination="4" style="--paginate:true;--class:backup;--theme:default;--style:section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -210,21 +210,39 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
-<h2 id="enterprise-slack-auth--the-tricky-part">Enterprise Slack Auth — The Tricky Part</h2>
-<p>Enterprise Slack rejects standard API tokens in the <code>Authorization</code> header.</p>
-<p><strong>Solution:</strong> Extract credentials from a browser &quot;Copy as cURL&quot;:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search download --curl <span class="hljs-string">&quot;<span class="hljs-subst">$(cat .curl)</span>&quot;</span> --channel cost-mgmt-dev --since <span class="hljs-string">&quot;3 weeks ago&quot;</span>
-</code></pre>
-<p>The <code>--curl</code> flag parses the full Chrome DevTools curl command:</p>
-<ul>
-<li>Extracts the <code>xoxc-</code> token from the form body</li>
-<li>Extracts <strong>all</strong> session cookies (not just <code>d=xoxd-…</code>)</li>
-<li>Sends them as a <code>Cookie</code> header on every POST — exactly as the browser does</li>
-</ul>
+;" data-marpit-pagination-total="15">
+<h2 id="optional--what-is-rag">[ optional ] What is RAG?</h2>
+<div class="columns">
+<div>
+<p><strong>RAG — Retrieval-Augmented Generation</strong> grounds LLM answers in real data rather than training memory.</p>
+<p><strong>Classic pipeline:</strong></p>
+<ol>
+<li><strong>Retrieve</strong> — find relevant documents (vector search, SQL, keyword…)</li>
+<li><strong>Augment</strong> — prepend them to the LLM prompt as context</li>
+<li><strong>Generate</strong> — LLM produces an answer grounded in what was retrieved</li>
+</ol>
 <blockquote>
-<p>One-time setup: open Slack in Chrome → DevTools → Network tab → copy any API request as cURL → save to <code>.curl</code>.</p>
+<p>Without retrieval, the LLM answers from training memory — stale, hallucination-prone, and blind to your private data.</p>
 </blockquote>
+<p><strong>Why it works:</strong> LLMs are excellent at reading, summarising, and reasoning over text they are <em>given</em>. RAG feeds them the right text at query time.</p>
+</div>
+<div>
+<p><strong>How slack-search implements it:</strong></p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>User: &quot;What did we decide about GCP quotas last month?&quot;
+         ↓
+① RETRIEVE
+   SQL query → 47 matching messages from local SQLite
+         ↓
+② AUGMENT
+   Messages prepended to LLM prompt as context
+         ↓
+③ GENERATE
+   LLM synthesises a plain-English answer
+</code></pre>
+<p>The <code>[SYNTHESISE]</code> mode is RAG with <strong>SQL as the retrieval layer</strong> — no vector database required.</p>
+<p>SQL retrieval is exact and auditable: every claim in the answer traces back to a real Slack message.</p>
+</div>
+</div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
@@ -270,51 +288,21 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
-<h2 id="three-query-modes">Three Query Modes</h2>
-<div class="columns3">
-<div>
-<h3 id="grep">grep</h3>
-<p>Regex / full-text over local archive.</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search grep -E \
-  <span class="hljs-string">&quot;out.of.memory|OOMKill&quot;</span>
+;" data-marpit-pagination-total="15">
+<h2 id="enterprise-slack-auth--the-tricky-part">Enterprise Slack Auth — The Tricky Part</h2>
+<p>Enterprise Slack rejects standard API tokens in the <code>Authorization</code> header.</p>
+<p><strong>Solution:</strong> Extract credentials from a browser &quot;Copy as cURL&quot;:</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search download --curl <span class="hljs-string">&quot;<span class="hljs-subst">$(cat .curl)</span>&quot;</span> --channel cost-mgmt-dev --since <span class="hljs-string">&quot;3 weeks ago&quot;</span>
 </code></pre>
+<p>The <code>--curl</code> flag parses the full Chrome DevTools curl command:</p>
 <ul>
-<li>Instant, no LLM</li>
-<li>Regex support</li>
-<li>Shows context lines</li>
-<li>Color highlights</li>
+<li>Extracts the <code>xoxc-</code> token from the form body</li>
+<li>Extracts <strong>all</strong> session cookies (not just <code>d=xoxd-…</code>)</li>
+<li>Sends them as a <code>Cookie</code> header on every POST — exactly as the browser does</li>
 </ul>
-<p>Best for: <strong>known strings</strong>, log fragments, exact error messages.</p>
-</div>
-<div>
-<h3 id="sql">SQL</h3>
-<p>Raw SQLite — full power.</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search search <span class="hljs-string">&quot;
-SELECT u.real_name,
-  count(*) as msgs
-FROM messages m
-JOIN users u
-  ON m.user_id = u.id
-GROUP BY u.id
-ORDER BY 2 DESC
-LIMIT 10&quot;</span>
-</code></pre>
-<p>Best for: <strong>aggregations</strong>, joins, date filters, power users.</p>
-</div>
-<div>
-<h3 id="nlq">NLQ</h3>
-<p>Natural language → SQL.</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">LLM_BASE_URL=... \
-slack-search nlq \
-  <span class="hljs-string">&quot;who sends the most
-   messages this month?&quot;</span>
-</code></pre>
-<p>LLM generates SQL, executes it, returns results.</p>
-<p><strong>Synthesise mode:</strong> results sent back to LLM for a plain-English answer.</p>
-<p>Best for: <strong>exploratory questions</strong>, non-SQL users.</p>
-</div>
-</div>
+<blockquote>
+<p>Setup: open Slack in Chrome → DevTools → Network tab → copy any API request as cURL → save to <code>.curl</code>. Session cookies expire — re-export when downloads start failing.</p>
+</blockquote>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="6" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
@@ -360,25 +348,51 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
-<h2 id="nlq--natural-language-to-sql">NLQ — Natural Language to SQL</h2>
-<p>The LLM receives the database schema and generates SQL from a plain question.</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>User: &quot;What topics came up most in cost-mgmt-dev last month?&quot;
-
-LLM:  [SYNTHESISE]
-      SELECT substr(text, 1, 120) as snippet, timestamp
-      FROM messages
-      WHERE channel_id = (SELECT id FROM channels WHERE name = 'cost-mgmt-dev')
-        AND timestamp &gt;= unixepoch('now', '-1 month')
-      ORDER BY timestamp DESC
-      LIMIT 100
+;" data-marpit-pagination-total="15">
+<h2 id="three-query-modes">Three Query Modes</h2>
+<div class="columns3">
+<div>
+<h3 id="grep">grep</h3>
+<p>Regex / full-text over local archive.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search grep -E \
+  <span class="hljs-string">&quot;out.of.memory|OOMKill&quot;</span>
 </code></pre>
-<p><strong><code>[SYNTHESISE]</code> mode:</strong> when the LLM prefixes its response with this tag, the results (up to 100–1000 rows, configurable) are sent back to the LLM which returns a plain-English summary instead of a raw table.</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Answer: &quot;Last month cost-mgmt-dev focused on three themes:
-  (1) GCP quota increases requested by the infra team (12 messages, week of Jun 3),
-  (2) Budget alert thresholds — a spike of 23 messages on Jun 11 after an alert fired,
-  (3) Discussion of spot vs on-demand instance cost tradeoffs (ongoing, 8 participants).&quot;
+<ul>
+<li>Instant, no LLM</li>
+<li>Regex support</li>
+<li>Shows context lines</li>
+<li>Color highlights</li>
+</ul>
+<p>Best for: <strong>known strings</strong>, log fragments, exact error messages.</p>
+</div>
+<div>
+<h3 id="sql">SQL</h3>
+<p>Raw SQLite — full power.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">slack-search search <span class="hljs-string">&quot;
+SELECT u.real_name,
+  count(*) as msgs
+FROM messages m
+JOIN users u
+  ON m.user_id = u.id
+GROUP BY u.id
+ORDER BY 2 DESC
+LIMIT 10&quot;</span>
 </code></pre>
+<p>Best for: <strong>aggregations</strong>, joins, date filters, power users.</p>
+</div>
+<div>
+<h3 id="nlq">NLQ</h3>
+<p>Natural language → SQL.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">LLM_BASE_URL=... \
+slack-search nlq \
+  <span class="hljs-string">&quot;who sends the most
+   messages this month?&quot;</span>
+</code></pre>
+<p>LLM generates SQL, executes it, returns results.</p>
+<p><strong>Synthesise mode:</strong> results sent back to LLM for a plain-English answer.</p>
+<p>Best for: <strong>exploratory questions</strong>, non-SQL users.</p>
+</div>
+</div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
@@ -424,7 +438,218 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
+<h2 id="grep--color-highlights-in-the-terminal">grep — Color Highlights in the Terminal</h2>
+<p><a href="slack-search-cli-search.png" target="_blank"><img src="slack-search-cli-search.png" style="height:440px; display:block; margin:0 auto;" /></a></p>
+<p><em>Regex search for OOM errors — instant, no LLM, color-highlighted matches with context lines.</em></p>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-paginate="true" data-theme="default" data-style="section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+" lang="en-US" data-marpit-pagination="8" style="--paginate:true;--theme:default;--style:section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+;" data-marpit-pagination-total="15">
+<h2 id="nlq--natural-language-to-sql">NLQ — Natural Language to SQL</h2>
+<p>The LLM receives the database schema and generates SQL from a plain question.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>User: &quot;What topics came up most in cost-mgmt-dev last month?&quot;
+
+LLM:  [SYNTHESISE]
+      SELECT substr(text, 1, 120) as snippet, timestamp
+      FROM messages
+      WHERE channel_id = (SELECT id FROM channels WHERE name = 'cost-mgmt-dev')
+        AND timestamp &gt;= unixepoch('now', '-1 month')
+      ORDER BY timestamp DESC
+      LIMIT 100
+</code></pre>
+<p><strong><code>[SYNTHESISE]</code> mode:</strong> when the LLM prefixes its response with this tag, the results (up to 100–1000 rows, configurable) are sent back to the LLM which returns a plain-English summary instead of a raw table.</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Answer: &quot;Last month cost-mgmt-dev focused on three themes:
+  (1) GCP quota increases requested by the infra team (12 messages, week of Jun 3),
+  (2) Budget alert thresholds — a spike of 23 messages on Jun 11 after an alert fired,
+  (3) Discussion of spot vs on-demand instance cost tradeoffs (ongoing, 8 participants).&quot;
+</code></pre>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-paginate="true" data-theme="default" data-style="section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+" lang="en-US" data-marpit-pagination="9" style="--paginate:true;--theme:default;--style:section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+;" data-marpit-pagination-total="15">
+<h2 id="nlq--in-the-terminal">NLQ — In the Terminal</h2>
+<p><a href="screenshot-nlq-terminal.png" target="_blank"><img src="screenshot-nlq-terminal.png" style="height:440px; display:block; margin:0 auto;" /></a></p>
+<p><em>&quot;who has sent the most messages in cost-mgmt-dev this month?&quot; — LLM generates the SQL (with date filter), executes it, returns the table.</em></p>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-paginate="true" data-theme="default" data-style="section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+" lang="en-US" data-marpit-pagination="10" style="--paginate:true;--theme:default;--style:section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+;" data-marpit-pagination-total="15">
+<h2 id="nlq--synthesise-mode-web-ui">NLQ — Synthesise Mode (Web UI)</h2>
+<p><a href="screenshot-web-synthesise.png" target="_blank"><img src="screenshot-web-synthesise.png" style="height:440px; display:block; margin:0 auto;" /></a></p>
+<p><em>Plain-English summary first, generated SQL and raw rows below — full transparency on how the answer was produced.</em></p>
+</section>
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="11" data-paginate="true" data-theme="default" data-style="section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+" lang="en-US" data-marpit-pagination="11" style="--paginate:true;--theme:default;--style:section {
+  font-size: 1.4rem;
+  padding-top: 30px !important;
+}
+h1, h2 {
+  margin-top: 0 !important;
+  margin-bottom: 0.4em !important;
+}
+section.lead h1 { font-size: 2.4rem; }
+section.lead h2 { font-size: 1.4rem; color: #555; }
+section.backup { background: #f8f8f8; }
+section.backup h2 { color: #666; border-bottom: 2px solid #aaa; }
+h1 { color: #1a3a5c; }
+h2 { color: #2c6fad; border-bottom: 2px solid #2c6fad; padding-bottom: 4px; }
+code { background: #f0f4f8; padding: 2px 6px; border-radius: 3px; }
+pre { background: #f0f4f8; font-size: 1.1rem; }
+.columns { display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; }
+.columns3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; }
+.box { background: #f0f4f8; border-left: 4px solid #2c6fad; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+.warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
+table { font-size: 1.1rem; }
+blockquote { border-left: 4px solid #2c6fad; color: #444; }
+;" data-marpit-pagination-total="15">
 <h2 id="llm-backend--privacy-first">LLM Backend — Privacy First</h2>
 <div class="columns">
 <div>
@@ -472,7 +697,7 @@ blockquote { border-left: 4px solid #2c6fad; color: #444; }
 </div>
 </div>
 </section>
-</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-paginate="true" data-theme="default" data-style="section {
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="12" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -494,7 +719,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-" lang="en-US" data-marpit-pagination="8" style="--paginate:true;--theme:default;--style:section {
+" lang="en-US" data-marpit-pagination="12" style="--paginate:true;--theme:default;--style:section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -516,7 +741,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="usage--summarising-what-happened">Usage — Summarising What Happened</h2>
 <p>Synthesise mode makes the tool useful for <strong>situational awareness</strong>, not just search.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash"><span class="hljs-comment"># Catch up after a week off</span>
@@ -536,7 +761,7 @@ slack-search nlq <span class="hljs-string">&quot;find all mentions of &#x27;GCP 
 With a local archive and NLQ, they take seconds.</p>
 </blockquote>
 </section>
-</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-paginate="true" data-theme="default" data-style="section {
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="13" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -558,7 +783,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-" lang="en-US" data-marpit-pagination="9" style="--paginate:true;--theme:default;--style:section {
+" lang="en-US" data-marpit-pagination="13" style="--paginate:true;--theme:default;--style:section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -580,7 +805,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="cross-project--querying-slack-from-any-codebase">Cross-Project — Querying Slack from Any Codebase</h2>
 <p>A Claude Code slash command makes the Slack archive available <strong>inside any project session</strong>.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-markdown"><span class="hljs-section"># .claude/commands/search-slack.md  (or ~/.claude/commands/ for global access)</span>
@@ -605,7 +830,7 @@ Use this when:
 accessible directly from the coding context.</p>
 </blockquote>
 </section>
-</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-paginate="true" data-theme="default" data-style="section {
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="14" data-paginate="true" data-theme="default" data-style="section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -627,7 +852,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-" lang="en-US" data-marpit-pagination="10" style="--paginate:true;--theme:default;--style:section {
+" lang="en-US" data-marpit-pagination="14" style="--paginate:true;--theme:default;--style:section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -649,9 +874,9 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="quality-loop--analyze-chat">Quality Loop — <code>/analyze-chat</code></h2>
-<p><code>.claude/commands/analyze-chat.md</code> — same &quot;LLM as a Judge&quot; pattern as dictpert.</p>
+<p><code>.claude/commands/analyze-chat.md</code> — LLM as a Judge applied to SQL generation quality.</p>
 <p>When a NLQ answer looks wrong, invoke <code>/analyze-chat &lt;conversation-id&gt;</code>:</p>
 <ul>
 <li>Fetches the conversation from the local DB</li>
@@ -664,9 +889,9 @@ blockquote { border-left: 4px solid #2c6fad; color: #444; }
 <img class="emoji" draggable="false" alt="🟡" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/1f7e1.svg" data-marp-twemoji=""/> Question asked &quot;what happened&quot; — synthesise mode should have been used
 <img class="emoji" draggable="false" alt="🟢" src="https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/1f7e2.svg" data-marp-twemoji=""/> User name filter looks correct
 </code></pre>
-<p><strong>The same eval → fix → re-run loop as dictpert, applied to SQL generation quality.</strong></p>
+<p><strong>The same eval → fix → re-run loop, applied to SQL generation quality.</strong></p>
 </section>
-</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="11" data-paginate="true" data-class="lead" data-theme="default" data-style="section {
+</foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="15" data-paginate="true" data-class="lead" data-theme="default" data-style="section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -688,7 +913,7 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-" lang="en-US" class="lead" data-marpit-pagination="11" style="--paginate:true;--class:lead;--theme:default;--style:section {
+" lang="en-US" class="lead" data-marpit-pagination="15" style="--paginate:true;--class:lead;--theme:default;--style:section {
   font-size: 1.4rem;
   padding-top: 30px !important;
 }
@@ -710,12 +935,12 @@ pre { background: #f0f4f8; font-size: 1.1rem; }
 .warn { background: #fefce8; border-left: 4px solid #ca8a04; padding: 0.7rem 1rem; border-radius: 0 4px 4px 0; }
 table { font-size: 1.1rem; }
 blockquote { border-left: 4px solid #2c6fad; color: #444; }
-;" data-marpit-pagination-total="11">
+;" data-marpit-pagination-total="15">
 <h2 id="summary">Summary</h2>
 <p><strong>slack-search</strong> turns Slack into a queryable local archive.</p>
 <p>Three query modes: <strong>grep · SQL · NLQ</strong> — from instant regex to plain-English summaries.</p>
 <p>Privacy-first: runs against <strong>RHT IT Inference API</strong> (company data stays internal) or fully local with Ollama / LM Studio.</p>
-<p>Slash command integration brings <strong>institutional memory into any Claude Code session</strong>.</p>
+<p>Slash command integration brings <strong>institutional memory into any coding agent session</strong>.</p>
 <blockquote>
 <p>Slack discussions are institutional knowledge.<br />
 slack-search makes that knowledge searchable, queryable,<br />

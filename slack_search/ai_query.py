@@ -134,6 +134,7 @@ def run_query(
     client: OpenAI,
     model: str,
     prompt_path: Path | None = None,
+    max_rows: int = MAX_LLM_ROWS,
 ) -> QueryResult:
     """Run the full NL→SQL→(synthesise) pipeline and return structured result."""
     result = QueryResult(question=question)
@@ -174,7 +175,7 @@ def run_query(
 
     # ── Execute SQL ──────────────────────────────────────────────────────────
     try:
-        capped = _cap_sql(sql) if synthesise else sql
+        capped = f"SELECT * FROM ({sql.rstrip(';')}) _q LIMIT {max_rows}" if synthesise else sql
         result.df = pd.read_sql_query(capped, conn)
     except Exception as e:
         result.error = f"SQL error: {e}"
@@ -184,7 +185,7 @@ def run_query(
         return result
 
     # ── Phase 2: synthesise ──────────────────────────────────────────────────
-    rows_text = _df_to_markdown(result.df, conn)
+    rows_text = _df_to_markdown(result.df, conn, max_rows)
     from datetime import date as _date
     today_str = _date.today().strftime("%A, %Y-%m-%d")
     synthesis_system = SYNTHESIS_PROMPT_PATH.read_text().replace("{today}", today_str)
@@ -214,7 +215,7 @@ def run_query(
     return result
 
 
-def _df_to_markdown(df: pd.DataFrame, conn: sqlite3.Connection | None = None) -> str:
+def _df_to_markdown(df: pd.DataFrame, conn: sqlite3.Connection | None = None, max_rows: int = MAX_LLM_ROWS) -> str:
     if df.empty:
         return "(no rows returned)"
     # Resolve <@U…> mentions in text columns before sending to the LLM
@@ -231,7 +232,7 @@ def _df_to_markdown(df: pd.DataFrame, conn: sqlite3.Connection | None = None) ->
     header = " | ".join(str(c) for c in df.columns)
     sep = " | ".join("---" for _ in df.columns)
     rows = "\n".join(" | ".join(str(v) for v in row) for row in df.itertuples(index=False))
-    note = f"\n\n_(results capped at {MAX_LLM_ROWS} rows)_" if len(df) == MAX_LLM_ROWS else ""
+    note = f"\n\n_(results capped at {max_rows} rows)_" if len(df) == max_rows else ""
     return f"{header}\n{sep}\n{rows}{note}"
 
 
@@ -244,6 +245,7 @@ def ask(
     model: str,
     api_key: str = "local",
     prompt_path: Path | None = None,
+    max_rows: int = MAX_LLM_ROWS,
 ) -> None:
     from rich.console import Console
     from rich.markdown import Markdown
@@ -254,7 +256,7 @@ def ask(
     console.print(f"[dim]Querying {model} at {base_url}{'  (via proxy)' if http and not _is_local else ''}…[/]")
 
     client = OpenAI(base_url=base_url, api_key=api_key, **({"http_client": http} if http else {}))
-    result = run_query(conn, question, client, model, prompt_path)
+    result = run_query(conn, question, client, model, prompt_path, max_rows)
 
     if result.error and result.mode == "error":
         # Distinguish connection errors from SQL/synthesis errors
@@ -277,4 +279,4 @@ def ask(
     if result.nl_answer:
         console.print("\n[bold cyan]Answer:[/]")
         console.print(Markdown(result.nl_answer))
-        console.print(f"\n[dim](based on {len(result.df)} row(s), capped at {MAX_LLM_ROWS})[/]")
+        console.print(f"\n[dim](based on {len(result.df)} row(s), capped at {max_rows})[/]")

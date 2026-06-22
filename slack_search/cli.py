@@ -299,6 +299,12 @@ def schema(ctx: click.Context) -> None:
     default=None,
     help="Use a RHT models.corp model by name (reads URL/key from .rht_models.json).",
 )
+@click.option(
+    "--max-rows",
+    default=100,
+    show_default=True,
+    help="Maximum rows sent to the LLM in synthesise mode.",
+)
 @click.pass_context
 def nlq(
     ctx: click.Context,
@@ -307,12 +313,13 @@ def nlq(
     llm_model: str,
     llm_api_key: str,
     rht_model: str,
+    max_rows: int,
 ) -> None:
     """Ask a natural language question about your Slack archive."""
     conn = ctx.obj["db"]
     if rht_model:
         llm_url, llm_api_key, llm_model = load_rht_config(rht_model)
-    ask(conn, question, base_url=llm_url, model=llm_model, api_key=llm_api_key)
+    ask(conn, question, base_url=llm_url, model=llm_model, api_key=llm_api_key, max_rows=max_rows)
 
 
 @cli.command()
