@@ -14,6 +14,16 @@ import requests
 
 MIN_INTERVAL = 1.0  # seconds between API calls
 
+AUTH_ERRORS = frozenset({
+    "invalid_auth", "not_authed", "token_expired", "token_revoked",
+    "account_inactive", "org_login_required",
+})
+
+
+class SlackAuthError(RuntimeError):
+    """Raised when Slack rejects credentials (expired token, revoked session, etc.)."""
+    pass
+
 
 class SlackClient:
     def __init__(
@@ -54,6 +64,11 @@ class SlackClient:
             if data.get("ok"):
                 return data
             error = data.get("error", "unknown_error")
+            if error in AUTH_ERRORS:
+                raise SlackAuthError(
+                    f"Slack credentials rejected ({error}). "
+                    "Re-copy a fresh curl from Chrome DevTools and update .curl."
+                )
             if error == "ratelimited":
                 retry_after = int(resp.headers.get("Retry-After", 30))
                 from rich.console import Console

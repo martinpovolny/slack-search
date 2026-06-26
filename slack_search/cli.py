@@ -16,6 +16,7 @@ from .ai_query import ask, load_rht_config
 from .eval import run_eval, save_results, print_summary, TESTS_DIR
 from .curl_parser import parse_curl
 from .grep import grep_messages
+from .slack_client import SlackAuthError
 from .slack_search_api import run_slack_search, extract_highlight_term
 
 console = Console()
@@ -166,19 +167,24 @@ def download_cmd(
 
     conn = ctx.obj["db"]
     dest = None if no_files else Path(files_dir)
-    count = download(
-        conn=conn,
-        token=token,
-        cookie=cookie,
-        workspace=workspace,
-        raw_cookies=raw_cookies,
-        channel=channel,
-        since=since,
-        files_dir=dest,
-        check_missing=check_missing,
-        fetch_threads=not no_threads,
-        channel_id_hint=channel_id_hint,
-    )
+    try:
+        count = download(
+            conn=conn,
+            token=token,
+            cookie=cookie,
+            workspace=workspace,
+            raw_cookies=raw_cookies,
+            channel=channel,
+            since=since,
+            files_dir=dest,
+            check_missing=check_missing,
+            fetch_threads=not no_threads,
+            channel_id_hint=channel_id_hint,
+        )
+    except SlackAuthError as e:
+        console.print(f"\n[red bold]Authentication failed:[/] {e}")
+        console.print("[yellow]Refresh your .curl file and retry.[/]")
+        raise SystemExit(2)
     console.print(f"[green]Done.[/] {count} new message(s) stored.")
 
 
@@ -250,6 +256,10 @@ def refresh(
             )
             console.print(f"  [green]✓[/] {count} new message(s)")
             total_new += count
+        except SlackAuthError as e:
+            console.print(f"\n[red bold]Authentication failed:[/] {e}")
+            console.print("[yellow]Refresh your .curl file and retry.[/]")
+            raise SystemExit(2)
         except Exception as e:
             console.print(f"  [red]✗ Error:[/] {e}")
 
@@ -575,13 +585,17 @@ def live_search_cmd(
         console.print("[red]Error:[/] No token. Pass --token, set SLACK_TOKEN, or use --curl.")
         raise SystemExit(1)
 
-    from .slack_client import SlackClient
+    from .slack_client import SlackClient, SlackAuthError
     client = SlackClient(token=token, cookie=cookie, workspace=workspace, raw_cookies=raw_cookies)
 
     conn = ctx.obj["db"]
     console.print(f"[dim]Searching Slack for:[/] [bold]{query}[/]")
     try:
         results = run_slack_search(conn, client, query, limit=limit)
+    except SlackAuthError as e:
+        console.print(f"\n[red bold]Authentication failed:[/] {e}")
+        console.print("[yellow]Refresh your .curl file and retry.[/]")
+        raise SystemExit(2)
     except Exception as e:
         console.print(f"[red]Search error:[/] {e}")
         raise SystemExit(1)
