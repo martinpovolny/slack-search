@@ -1,0 +1,82 @@
+#compdef slack-search
+
+_slack-search() {
+  local -a commands
+  commands=(
+    'download:Download messages from a Slack channel'
+    'refresh:Refresh all subscribed channels'
+    'search:Run a raw SQL query'
+    'schema:Show the database schema'
+    'nlq:Natural language query (NL → SQL)'
+    'grep:Search messages by text or regex'
+    'eval:Run NLQ evaluation test suite'
+    'serve:Start the web UI server'
+    'version:Show version info'
+    'help:Show help'
+  )
+
+  _arguments -C \
+    '1:command:->command' \
+    '*::arg:->args'
+
+  case $state in
+    command)
+      _describe 'command' commands
+      ;;
+    args)
+      case $words[1] in
+        download)
+          _arguments \
+            '--curl-file[Path to .curl file]:file:_files' \
+            '--token[Slack token (xoxp-/xoxb-/xoxc-)]:token:' \
+            '--cookie[Session cookie value (xoxc- only)]:cookie:' \
+            '--workspace[Workspace hostname]:hostname:' \
+            '--channel[Channel name or ID]:channel:' \
+            '--since[Fetch messages after this date/timestamp]:date:' \
+            '--no-threads[Skip fetching thread replies]'
+          ;;
+        refresh)
+          _arguments \
+            '--curl-file[Path to .curl file]:file:_files' \
+            '--token[Slack token]:token:' \
+            '--cookie[Session cookie]:cookie:' \
+            '--workspace[Workspace hostname]:hostname:' \
+            '--no-threads[Skip fetching thread replies]'
+          ;;
+        search)
+          _arguments \
+            '1:sql query:'
+          ;;
+        nlq)
+          _arguments \
+            '--model[RHT model name]:model:' \
+            '--max-rows[Max rows sent to LLM for synthesis]:number:' \
+            '*:question:'
+          ;;
+        grep)
+          _arguments \
+            '-F[Fixed string search]:string:' \
+            '-E[Regex pattern search]:pattern:' \
+            '*-c[Channel name or ID]:channel:' \
+            '--since[Since timestamp or date]:date:' \
+            '--until[Until timestamp or date]:date:' \
+            '-p[Person name (partial match)]:person:' \
+            '-n[Max results]:number:'
+          ;;
+        eval)
+          _arguments \
+            '--model[RHT model name]:model:' \
+            '--tests[Directory with test case files]:directory:_dirs' \
+            '--results[Directory for result output]:directory:_dirs'
+          ;;
+        serve)
+          _arguments \
+            '--addr[Listen address]:address:' \
+            '--curl-file[Path to .curl file]:file:_files'
+          ;;
+      esac
+      ;;
+  esac
+}
+
+_slack-search "$@"
