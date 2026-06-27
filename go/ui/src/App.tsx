@@ -227,7 +227,7 @@ function NLQTab() {
       const resp = await fetch('/api/nlq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMsg, conversation_id: activeConv }),
+        body: JSON.stringify({ question: userMsg, conversation_id: activeConv, max_rows: maxRows }),
       })
       const data: NLQResult = await resp.json()
       const content = data.Answer || (data.SQL ? `SQL: ${data.SQL}` : data.Error || '')
@@ -241,6 +241,7 @@ function NLQTab() {
   }
 
   const [convWidth, setConvWidth] = useState(192)
+  const [maxRows, setMaxRows] = useState(100)
 
   return (
     <div className="flex h-full">
@@ -282,13 +283,20 @@ function NLQTab() {
           ))}
           {loading && <div className="text-sm text-gray-400">Thinking…</div>}
         </div>
-        <div className="flex gap-2 pt-2 border-t">
+        <div className="flex gap-2 pt-2 border-t items-center">
           <input
             value={question}
             onChange={e => setQuestion(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && !loading && ask()}
             placeholder="Ask about your Slack archive…"
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <input
+            type="number"
+            value={maxRows}
+            onChange={e => setMaxRows(Math.max(1, parseInt(e.target.value) || 100))}
+            title="Max rows sent to LLM for synthesis"
+            className="w-16 border border-gray-300 rounded-lg px-2 py-2 text-sm text-center"
           />
           <button onClick={ask} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
             {loading ? '…' : 'Ask'}

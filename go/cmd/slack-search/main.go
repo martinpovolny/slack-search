@@ -11,8 +11,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"os/exec"
 	"regexp"
 
+	"github.com/martinpovolny/slack-search/internal/timeparse"
 	"github.com/martinpovolny/slack-search/internal/api"
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/download"
@@ -165,9 +167,14 @@ func cmdDownload(dbPath string) {
 		log.Fatalf("Cannot resolve channel: %v", err)
 	}
 
+	sinceTS, err := timeparse.Parse(since)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	count, err := download.Download(conn, client, channelID, channelName, download.Options{
 		FetchThreads: !noThreads,
-		Since:        since,
+		Since:        sinceTS,
 	})
 	if err != nil {
 		if slackclient.IsAuthError(err) {
@@ -285,6 +292,7 @@ func cmdGrep(dbPath string) {
 	var fixedStr, pattern, person, since, until string
 	var channels stringSlice
 	var limit int
+	var pager bool
 	fs.StringVar(&fixedStr, "F", "", "Fixed string search (case-insensitive)")
 	fs.StringVar(&pattern, "E", "", "Regex pattern search (case-insensitive)")
 	fs.Var(&channels, "c", "Channel name or ID (repeatable)")
@@ -292,6 +300,7 @@ func cmdGrep(dbPath string) {
 	fs.StringVar(&until, "until", "", "Until timestamp or date")
 	fs.StringVar(&person, "p", "", "Person name (partial match)")
 	fs.IntVar(&limit, "n", 200, "Max results")
+	fs.BoolVar(&pager, "P", false, "Page output through less")
 	fs.Parse(os.Args[2:])
 
 	if fixedStr == "" && pattern == "" {
@@ -301,12 +310,21 @@ func cmdGrep(dbPath string) {
 	conn := openDB(dbPath)
 	defer conn.Close()
 
+	sinceTS, err := timeparse.Parse(since)
+	if err != nil {
+		log.Fatal(err)
+	}
+	untilTS, err := timeparse.Parse(until)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	results, err := search.Grep(conn, search.GrepOptions{
 		FixedString: fixedStr,
 		Pattern:     pattern,
 		Channels:    channels,
-		Since:       since,
-		Until:       until,
+		Since:       sinceTS,
+		Until:       untilTS,
 		Person:      person,
 		Limit:       limit,
 	})
@@ -330,6 +348,19 @@ func cmdGrep(dbPath string) {
 		hlRe, _ = regexp.Compile("(?i)" + pattern)
 	}
 
+	// Set up pager if requested
+	out := os.Stdout
+	var pagerCmd *exec.Cmd
+	if pager {
+		pagerCmd = exec.Command("less", "-R")
+		pagerCmd.Stdout = os.Stdout
+		pagerCmd.Stderr = os.Stderr
+		pr, pw, _ := os.Pipe()
+		pagerCmd.Stdin = pr
+		out = pw
+		pagerCmd.Start()
+	}
+
 	const (
 		colorReset  = "\033[0m"
 		colorDim    = "\033[2m"
@@ -337,7 +368,6 @@ func cmdGrep(dbPath string) {
 		colorCyan   = "\033[36m"
 		colorYellow = "\033[33m"
 		colorRed    = "\033[91m"
-		colorPurple = "\033[35m"
 	)
 
 	for _, r := range results {
@@ -351,13 +381,18 @@ func cmdGrep(dbPath string) {
 				return colorRed + colorBold + m + colorReset
 			})
 		}
-		fmt.Printf("%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
+		fmt.Fprintf(out, "%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
 			colorDim, r.Time, colorReset,
 			colorCyan, r.Channel, colorReset,
 			colorYellow, r.Author, colorReset,
 			prefix, text)
 	}
-	fmt.Printf("\n%d result(s)\n", len(results))
+	fmt.Fprintf(out, "\n%d result(s)\n", len(results))
+
+	if pagerCmd != nil {
+		out.Close()
+		pagerCmd.Wait()
+	}
 }
 
 func cmdEval(dbPath string) {

@@ -63,16 +63,16 @@ Feature tracking for the Go reimplementation of slack-search.
 
 | # | Area | Gap | Priority |
 |---|------|-----|----------|
-| G01 | CLI | `--since` only takes timestamps, not human dates ("3 weeks ago") | medium |
-| G02 | CLI | No `--pager` / `-P` flag for piping through less | low |
-| G03 | CLI | `grep -E` regex: SQLite REGEXP function not registered | high |
+| ~~G01~~ | ~~CLI~~ | ~~`--since` human date parsing~~ | ~~done~~ |
+| ~~G02~~ | ~~CLI~~ | ~~`-P` pager flag~~ | ~~done~~ |
+| ~~G03~~ | ~~CLI~~ | ~~SQLite REGEXP function~~ | ~~done~~ |
 | G04 | CLI | No `live-search` subcommand (only via web UI API) | low |
 | G05 | CLI | No `--check-missing` gap filling in download | low |
-| G06 | Web UI | Browse: no Slack deep-links (slack://open) | medium |
+| ~~G06~~ | ~~Web UI~~ | ~~Browse: Slack deep-links~~ | ~~done~~ |
 | G07 | Web UI | Browse: no keyword highlighting in message detail view | medium |
 | G08 | Web UI | NLQ: no streaming response display | medium |
 | G09 | Web UI | NLQ: no channel filter in prompt augmentation | medium |
-| G10 | Web UI | NLQ: no max-rows selector | low |
+| ~~G10~~ | ~~Web UI~~ | ~~NLQ: max-rows selector~~ | ~~done~~ |
 | G11 | Web UI | Sidebar: no schema reference expander | low |
 
 ## Backlog
@@ -81,3 +81,4 @@ Feature tracking for the Go reimplementation of slack-search.
 |------|---------|-------|
 | F24 | User name filter in sidebar/browse | Filter by login, full name; prototype in Python first, then port to Go |
 | F25 | MCP server | Expose slack-search as an MCP server — lets Claude Code, Cursor, and other agents query the Slack archive directly via tools (search, grep, nlq). Go binary would serve both the web UI and MCP over stdio/SSE. |
+| F26 | Jira ticket linking | Config: base Jira URL + list of project prefixes (e.g. COST, FLPATH). Patterns like COST-454 auto-rendered as clickable links in messages (Browse, Ask, Search tabs). Config in `~/.slack-search/config.json`. |

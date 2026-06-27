@@ -4,10 +4,21 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	"github.com/mattn/go-sqlite3"
 )
+
+func init() {
+	sql.Register("sqlite3_with_regexp", &sqlite3.SQLiteDriver{
+		ConnectHook: func(conn *sqlite3.SQLiteConn) error {
+			return conn.RegisterFunc("regexp", func(pattern, s string) (bool, error) {
+				return regexp.MatchString("(?i)"+pattern, s)
+			}, true)
+		},
+	})
+}
 
 const schema = `
 CREATE TABLE IF NOT EXISTS channels (
@@ -59,7 +70,7 @@ CREATE TABLE IF NOT EXISTS download_state (
 `
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", path+"?_journal_mode=WAL&_foreign_keys=ON")
+	db, err := sql.Open("sqlite3_with_regexp", path+"?_journal_mode=WAL&_foreign_keys=ON")
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -75,7 +86,7 @@ func Open(path string) (*sql.DB, error) {
 }
 
 func OpenReadonly(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", "file:"+path+"?mode=ro&_foreign_keys=ON")
+	db, err := sql.Open("sqlite3_with_regexp", "file:"+path+"?mode=ro&_foreign_keys=ON")
 	if err != nil {
 		return nil, fmt.Errorf("open readonly %s: %w", path, err)
 	}
