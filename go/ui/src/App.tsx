@@ -24,6 +24,7 @@ interface GrepResult {
 
 function App() {
   const [tab, setTab] = useState<Tab>('browse')
+  const [browseChannel, setBrowseChannel] = useState('')
   const [channels, setChannels] = useState<Channel[]>([])
   const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string } | null>(null)
   const [rt, setRt] = useState<{
@@ -63,7 +64,11 @@ function App() {
           <div className="font-medium mb-1">Channels</div>
           <div className="max-h-48 overflow-y-auto space-y-0.5">
             {channels.map(ch => (
-              <div key={ch.ID} className={`text-xs truncate ${ch.Subscribed ? 'font-bold text-gray-800' : 'text-gray-400'}`}>#{ch.Name}</div>
+              <div
+                key={ch.ID}
+                onClick={ch.Subscribed ? () => { setBrowseChannel(ch.Name); setTab('browse') } : undefined}
+                className={`text-xs truncate ${ch.Subscribed ? 'font-bold text-gray-800 cursor-pointer hover:text-blue-600' : 'text-gray-400'}`}
+              >#{ch.Name}</div>
             ))}
           </div>
         </div>
@@ -113,7 +118,7 @@ function App() {
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto p-4">
           {tab === 'nlq' && <NLQTab />}
-          {tab === 'browse' && <BrowseTab channels={channels} />}
+          {tab === 'browse' && <BrowseTab channels={channels} initialChannel={browseChannel} />}
           {tab === 'sql' && <SQLTab />}
           {tab === 'search' && <SearchTab />}
         </div>
@@ -231,18 +236,19 @@ function NLQTab() {
   )
 }
 
-function BrowseTab({ channels }: { channels: Channel[] }) {
+function BrowseTab({ channels, initialChannel }: { channels: Channel[]; initialChannel?: string }) {
   const [text, setText] = useState('')
-  const [channel, setChannel] = useState('')
+  const [channel, setChannel] = useState(initialChannel || '')
   const [person, setPerson] = useState('')
   const [limit, setLimit] = useState('25')
   const [results, setResults] = useState<GrepResult[]>([])
   const [selected, setSelected] = useState<GrepResult | null>(null)
 
-  const search = async () => {
+  const search = async (ch?: string) => {
     const params = new URLSearchParams()
     if (text) params.set('text', text)
-    if (channel) params.set('channel', channel)
+    const effectiveChannel = ch !== undefined ? ch : channel
+    if (effectiveChannel) params.set('channel', effectiveChannel)
     if (person) params.set('person', person)
     params.set('limit', limit)
     const resp = await fetch(`/api/messages?${params}`)
@@ -252,6 +258,13 @@ function BrowseTab({ channels }: { channels: Channel[] }) {
   }
 
   useEffect(() => { search() }, [])
+
+  useEffect(() => {
+    if (initialChannel !== undefined && initialChannel !== channel) {
+      setChannel(initialChannel)
+      search(initialChannel)
+    }
+  }, [initialChannel])
 
   return (
     <div className="space-y-3">
