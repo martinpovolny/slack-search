@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import Markdown from 'react-markdown'
 
 type Tab = 'nlq' | 'browse' | 'sql' | 'search'
 
@@ -516,27 +517,20 @@ function SearchTab() {
 
 function MessageContent({ text }: { text: string }) {
   if (!text) return null
-  const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g
-  const parts: JSX.Element[] = []
-  let lastIdx = 0
-  let match
-  let key = 0
-
-  while ((match = codeBlockRe.exec(text)) !== null) {
-    if (match.index > lastIdx) {
-      parts.push(<span key={key++} className="whitespace-pre-wrap">{text.slice(lastIdx, match.index)}</span>)
-    }
-    parts.push(
-      <pre key={key++} className="bg-gray-200 text-gray-800 p-2 rounded my-1 overflow-x-auto text-xs font-mono">
-        {match[2].trim()}
-      </pre>
-    )
-    lastIdx = match.index + match[0].length
-  }
-  if (lastIdx < text.length) {
-    parts.push(<span key={key++} className="whitespace-pre-wrap">{text.slice(lastIdx)}</span>)
-  }
-  return <div>{parts}</div>
+  return (
+    <Markdown
+      components={{
+        pre: ({ children }) => <pre className="bg-gray-200 text-gray-800 p-2 rounded my-1 overflow-x-auto text-xs font-mono">{children}</pre>,
+        code: ({ children, className }) => className
+          ? <code className={className}>{children}</code>
+          : <code className="bg-gray-200 px-1 rounded text-xs">{children}</code>,
+        table: ({ children }) => <table className="border-collapse text-xs my-2 w-full">{children}</table>,
+        th: ({ children }) => <th className="border border-gray-300 px-2 py-1 bg-gray-100 text-left font-medium">{children}</th>,
+        td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
+        a: ({ href, children }) => <a href={href} target="_blank" className="text-blue-500 hover:underline">{children}</a>,
+      }}
+    >{text}</Markdown>
+  )
 }
 
 function DataTable({ data }: { data: SearchResult }) {
