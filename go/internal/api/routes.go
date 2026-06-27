@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/martinpovolny/slack-search/internal/config"
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/nlq"
 	"github.com/martinpovolny/slack-search/internal/search"
@@ -49,6 +50,7 @@ func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Clien
 	mux.HandleFunc("/api/slack-search", h.handleSlackSearch)
 	mux.HandleFunc("/api/slack-status", h.handleSlackStatus)
 	mux.HandleFunc("/api/runtime", h.handleRuntime)
+	mux.HandleFunc("/api/config", h.handleConfig)
 	h.mux = mux
 	return h
 }
@@ -322,6 +324,11 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 }
 
 // Slack live search
+
+func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
+	cfg := config.Load()
+	json.NewEncoder(w).Encode(cfg)
+}
 
 func (h *Handler) handleSlackStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"connected": h.slackClient != nil})

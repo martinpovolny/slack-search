@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"regexp"
 
+	"github.com/martinpovolny/slack-search/internal/config"
 	"github.com/martinpovolny/slack-search/internal/timeparse"
 	"github.com/martinpovolny/slack-search/internal/api"
 	"github.com/martinpovolny/slack-search/internal/db"
@@ -340,6 +341,10 @@ func cmdGrep(dbPath string) {
 	uids := format.ExtractUIDs(texts)
 	userMap := format.BuildUserMap(conn, uids)
 
+	// Jira linking
+	cfg := config.Load()
+	jiraRe := format.JiraLinkRe(cfg.JiraProjects)
+
 	// Build highlight regex
 	var hlRe *regexp.Regexp
 	if fixedStr != "" {
@@ -376,6 +381,7 @@ func cmdGrep(dbPath string) {
 			prefix = "↳ "
 		}
 		text := format.ResolveMentions(r.Text, userMap)
+		text = format.LinkifyJira(text, cfg.JiraURL, jiraRe)
 		if hlRe != nil {
 			text = hlRe.ReplaceAllStringFunc(text, func(m string) string {
 				return colorRed + colorBold + m + colorReset

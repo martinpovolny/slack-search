@@ -9,6 +9,37 @@ import (
 
 var mentionRe = regexp.MustCompile(`<@([A-Z0-9]+)(?:\|[^>]*)?>`)
 
+// JiraLinkRe builds a regex matching project keys like COST-123.
+func JiraLinkRe(projects []string) *regexp.Regexp {
+	if len(projects) == 0 {
+		return nil
+	}
+	pattern := `\b(` + strings.Join(projects, "|") + `)-(\d+)\b`
+	return regexp.MustCompile(pattern)
+}
+
+// LinkifyJira replaces PROJ-123 with ANSI-colored clickable text (for terminals supporting OSC 8).
+func LinkifyJira(text, baseURL string, re *regexp.Regexp) string {
+	if re == nil || baseURL == "" {
+		return text
+	}
+	return re.ReplaceAllStringFunc(text, func(m string) string {
+		url := baseURL + "/" + m
+		return fmt.Sprintf("\033]8;;%s\033\\%s\033]8;;\033\\", url, m)
+	})
+}
+
+// LinkifyJiraHTML replaces PROJ-123 with HTML links.
+func LinkifyJiraHTML(text, baseURL string, re *regexp.Regexp) string {
+	if re == nil || baseURL == "" {
+		return text
+	}
+	return re.ReplaceAllStringFunc(text, func(m string) string {
+		url := baseURL + "/" + m
+		return fmt.Sprintf(`<a href="%s" target="_blank" style="color:#2563eb;text-decoration:underline">%s</a>`, url, m)
+	})
+}
+
 // ExtractUIDs returns all user IDs mentioned in the texts.
 func ExtractUIDs(texts []string) []string {
 	seen := map[string]bool{}

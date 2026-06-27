@@ -24,11 +24,17 @@ interface GrepResult {
   ThreadTS: string
 }
 
+interface AppConfig {
+  jira_url: string
+  jira_projects: string[]
+}
+
 function App() {
   const [tab, setTab] = useState<Tab>('browse')
   const [browseChannel, setBrowseChannel] = useState('')
   const [channels, setChannels] = useState<Channel[]>([])
   const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string; workspace: string } | null>(null)
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null)
   const [rt, setRt] = useState<{
     commit: string; go_version: string; os: string; arch: string;
     uptime_sec: number; alloc_mb: number; sys_mb: number;
@@ -40,6 +46,7 @@ function App() {
     fetch('/api/channels').then(r => r.json()).then(setChannels).catch(() => {})
     fetch('/api/stats').then(r => r.json()).then(setStats).catch(() => {})
     fetch('/api/runtime').then(r => r.json()).then(setRt).catch(() => {})
+    fetch('/api/config').then(r => r.json()).then(setAppConfig).catch(() => {})
   }, [])
 
   const tabs: { key: Tab; label: string }[] = [
@@ -131,8 +138,8 @@ function App() {
 
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto p-4">
-          {tab === 'nlq' && <NLQTab />}
-          {tab === 'browse' && <BrowseTab channels={channels} initialChannel={browseChannel} workspace={stats?.workspace || ''} />}
+          {tab === 'nlq' && <NLQTab jiraConfig={appConfig} />}
+          {tab === 'browse' && <BrowseTab channels={channels} initialChannel={browseChannel} workspace={stats?.workspace || ''} jiraConfig={appConfig} />}
           {tab === 'sql' && <SQLTab />}
           {tab === 'search' && <SearchTab />}
         </div>
@@ -180,7 +187,7 @@ function ResizeDivider({ onResize }: { onResize: (delta: number) => void }) {
 interface ConvItem { id: string; title: string }
 interface NLQResult { SQL: string; Answer: string; Result: SearchResult | null; Error: string }
 
-function NLQTab() {
+function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
   const [conversations, setConversations] = useState<ConvItem[]>([])
@@ -273,7 +280,7 @@ function NLQTab() {
           {messages.map((m, i) => (
             <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
               <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
-                <MessageContent text={m.content} />
+                <MessageContent text={m.content} jiraConfig={jiraConfig} />
                 {m.sql && (
                   <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1 bg-gray-200 p-2 rounded overflow-x-auto">{m.sql}</pre></details>
                 )}
@@ -311,7 +318,7 @@ function slackPermalink(workspace: string, channelID: string, ts: string): strin
   return `https://${workspace}/archives/${channelID}/p${ts.replace('.', '')}`
 }
 
-function BrowseTab({ channels, initialChannel, workspace }: { channels: Channel[]; initialChannel?: string; workspace: string }) {
+function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channels: Channel[]; initialChannel?: string; workspace: string; jiraConfig?: AppConfig | null }) {
   const [text, setText] = useState('')
   const [channel, setChannel] = useState(initialChannel || '')
   const [person, setPerson] = useState('')
@@ -399,7 +406,7 @@ function BrowseTab({ channels, initialChannel, workspace }: { channels: Channel[
               </>
             )}
           </div>
-          <div className="text-sm whitespace-pre-wrap">{selected.Text}</div>
+          <div className="text-sm"><MessageContent text={selected.Text} jiraConfig={jiraConfig} /></div>
         </div>
       )}
     </div>
@@ -523,8 +530,15 @@ function SearchTab() {
   )
 }
 
-function MessageContent({ text }: { text: string }) {
+function linkifyJira(text: string, config: AppConfig | null): string {
+  if (!config?.jira_url || !config?.jira_projects?.length) return text
+  const pattern = new RegExp(`\\b(${config.jira_projects.join('|')})-(\\d+)\\b`, 'g')
+  return text.replace(pattern, (m) => `[${m}](${config.jira_url}/${m})`)
+}
+
+function MessageContent({ text, jiraConfig }: { text: string; jiraConfig?: AppConfig | null }) {
   if (!text) return null
+  const processed = linkifyJira(text, jiraConfig || null)
   return (
     <Markdown
       components={{
@@ -537,7 +551,7 @@ function MessageContent({ text }: { text: string }) {
         td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
         a: ({ href, children }) => <a href={href} target="_blank" className="text-blue-500 hover:underline">{children}</a>,
       }}
-    >{text}</Markdown>
+    >{processed}</Markdown>
   )
 }
 
