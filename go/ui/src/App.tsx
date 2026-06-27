@@ -52,12 +52,20 @@ function App() {
           </div>
         )}
         <hr className="border-gray-200" />
-        <div className="text-sm text-gray-600">
+        <div className="text-sm text-gray-600 flex-1">
           <div className="font-medium mb-1">Channels</div>
           <div className="max-h-48 overflow-y-auto space-y-0.5">
             {channels.map(ch => (
               <div key={ch.ID} className={`text-xs truncate ${ch.Subscribed ? 'font-bold text-gray-800' : 'text-gray-400'}`}>#{ch.Name}</div>
             ))}
+          </div>
+        </div>
+        <div className="text-xs text-gray-400 space-y-1 pt-2 border-t border-gray-200">
+          <div className="text-gray-500 font-medium">Martin Povolny</div>
+          <div><a href="mailto:martin.povolny@gmail.com" className="hover:text-gray-600">martin.povolny@gmail.com</a></div>
+          <div className="flex gap-3">
+            <a href="https://github.com/martinpovolny" target="_blank" className="hover:text-gray-600">GitHub</a>
+            <a href="https://www.linkedin.com/in/martinpovolny/" target="_blank" className="hover:text-gray-600">LinkedIn</a>
           </div>
         </div>
       </aside>
