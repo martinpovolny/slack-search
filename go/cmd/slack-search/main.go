@@ -372,8 +372,9 @@ func cmdEval(dbPath string) {
 
 func cmdServe(dbPath string) {
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
-	var addr string
+	var addr, curlFile string
 	serveFlags.StringVar(&addr, "addr", ":8088", "Listen address")
+	serveFlags.StringVar(&curlFile, "curl-file", "", "Path to .curl file for Slack live search credentials")
 	serveFlags.Parse(os.Args[2:])
 
 	conn := openDB(dbPath)
@@ -385,10 +386,34 @@ func cmdServe(dbPath string) {
 		log.Printf("Warning: could not open conversations DB: %v", err)
 	}
 
+	// Load Slack credentials if --curl-file provided
+	var slackClient *slackclient.Client
+	if curlFile == "" {
+		// Auto-detect .curl in ~/.slack-search/
+		defaultCurl := filepath.Join(filepath.Dir(dbPath), ".curl")
+		if _, err := os.Stat(defaultCurl); err == nil {
+			curlFile = defaultCurl
+		}
+	}
+	if curlFile != "" {
+		data, err := os.ReadFile(curlFile)
+		if err != nil {
+			log.Printf("Warning: cannot read curl file %s: %v", curlFile, err)
+		} else {
+			creds, err := slackclient.ParseCurl(string(data))
+			if err != nil {
+				log.Printf("Warning: cannot parse curl: %v", err)
+			} else {
+				slackClient = slackclient.NewClient(creds.Token, creds.Cookie, creds.Workspace, creds.RawCookies)
+				log.Printf("Slack credentials loaded from %s (workspace: %s)", curlFile, creds.Workspace)
+			}
+		}
+	}
+
 	mux := http.NewServeMux()
 
 	// API routes
-	apiHandler := api.NewHandler(conn, convDB)
+	apiHandler := api.NewHandler(conn, convDB, slackClient)
 	mux.Handle("/api/", apiHandler)
 
 	// Health check

@@ -15,13 +15,14 @@ import (
 )
 
 type Handler struct {
-	db     *sql.DB
-	convDB *sql.DB
-	mux    *http.ServeMux
+	db          *sql.DB
+	convDB      *sql.DB
+	slackClient *slackclient.Client
+	mux         *http.ServeMux
 }
 
-func NewHandler(database *sql.DB, convDB *sql.DB) *Handler {
-	h := &Handler{db: database, convDB: convDB}
+func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Client) *Handler {
+	h := &Handler{db: database, convDB: convDB, slackClient: slackClient}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/channels", h.handleChannels)
 	mux.HandleFunc("/api/search", h.handleSearch)
@@ -33,6 +34,7 @@ func NewHandler(database *sql.DB, convDB *sql.DB) *Handler {
 	mux.HandleFunc("/api/conversations", h.handleConversations)
 	mux.HandleFunc("/api/conversations/", h.handleConversation)
 	mux.HandleFunc("/api/slack-search", h.handleSlackSearch)
+	mux.HandleFunc("/api/slack-status", h.handleSlackStatus)
 	h.mux = mux
 	return h
 }
@@ -48,7 +50,7 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 }
 
 func (h *Handler) handleChannels(w http.ResponseWriter, r *http.Request) {
-	channels, err := db.AllChannels(h.db)
+	channels, err := db.AllChannelsWithSubscribed(h.db)
 	if err != nil {
 		jsonError(w, err.Error(), 500)
 		return
@@ -306,17 +308,22 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 
 // Slack live search
 
+func (h *Handler) handleSlackStatus(w http.ResponseWriter, r *http.Request) {
+	json.NewEncoder(w).Encode(map[string]bool{"connected": h.slackClient != nil})
+}
+
 func (h *Handler) handleSlackSearch(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		jsonError(w, "POST required", 405)
 		return
 	}
+	if h.slackClient == nil {
+		jsonError(w, "Slack credentials not loaded. Start the server with --curl-file .curl", 400)
+		return
+	}
 	var req struct {
-		Query     string `json:"query"`
-		Limit     int    `json:"limit"`
-		Token     string `json:"token"`
-		Cookie    string `json:"cookie"`
-		Workspace string `json:"workspace"`
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", 400)
@@ -326,17 +333,16 @@ func (h *Handler) handleSlackSearch(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "missing query", 400)
 		return
 	}
-	if req.Token == "" {
-		jsonError(w, "missing token — paste credentials from Slack", 400)
-		return
-	}
 	if req.Limit <= 0 {
 		req.Limit = 50
 	}
 
-	client := slackclient.NewClient(req.Token, req.Cookie, req.Workspace, "")
-	results, err := slackclient.LiveSearch(h.db, client, req.Query, req.Limit)
+	results, err := slackclient.LiveSearch(h.db, h.slackClient, req.Query, req.Limit)
 	if err != nil {
+		if slackclient.IsAuthError(err) {
+			jsonError(w, "Slack credentials expired. Re-copy .curl from Chrome DevTools.", 401)
+			return
+		}
 		jsonError(w, err.Error(), 500)
 		return
 	}

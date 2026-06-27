@@ -269,20 +269,29 @@ func SubscribedChannels(db *sql.DB) ([]struct{ ID, Name string }, error) {
 	return channels, rows.Err()
 }
 
-// AllChannels returns all channels.
-func AllChannels(db *sql.DB) ([]struct{ ID, Name string }, error) {
-	rows, err := db.Query("SELECT id, name FROM channels ORDER BY name")
+// Channel holds channel info including subscription status.
+type Channel struct {
+	ID         string `json:"ID"`
+	Name       string `json:"Name"`
+	Subscribed bool   `json:"Subscribed"`
+}
+
+// AllChannelsWithSubscribed returns all channels, subscribed first, then alphabetical.
+func AllChannelsWithSubscribed(db *sql.DB) ([]Channel, error) {
+	rows, err := db.Query("SELECT id, name, subscribed FROM channels ORDER BY subscribed DESC, name")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	var channels []struct{ ID, Name string }
+	var channels []Channel
 	for rows.Next() {
-		var ch struct{ ID, Name string }
-		if err := rows.Scan(&ch.ID, &ch.Name); err != nil {
+		var ch Channel
+		var sub int
+		if err := rows.Scan(&ch.ID, &ch.Name, &sub); err != nil {
 			return nil, err
 		}
+		ch.Subscribed = sub == 1
 		channels = append(channels, ch)
 	}
 	return channels, rows.Err()

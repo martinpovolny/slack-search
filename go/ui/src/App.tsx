@@ -5,6 +5,7 @@ type Tab = 'nlq' | 'browse' | 'sql' | 'search'
 interface Channel {
   ID: string
   Name: string
+  Subscribed: boolean
 }
 
 interface SearchResult {
@@ -55,7 +56,7 @@ function App() {
           <div className="font-medium mb-1">Channels</div>
           <div className="max-h-48 overflow-y-auto space-y-0.5">
             {channels.map(ch => (
-              <div key={ch.ID} className="text-xs text-gray-500 truncate">#{ch.Name}</div>
+              <div key={ch.ID} className={`text-xs truncate ${ch.Subscribed ? 'font-bold text-gray-800' : 'text-gray-400'}`}>#{ch.Name}</div>
             ))}
           </div>
         </div>
@@ -320,22 +321,24 @@ interface SlackResult {
 
 function SearchTab() {
   const [query, setQuery] = useState('')
-  const [token, setToken] = useState('')
-  const [cookie, setCookie] = useState('')
-  const [workspace, setWorkspace] = useState('')
+  const [connected, setConnected] = useState<boolean | null>(null)
   const [results, setResults] = useState<SlackResult[]>([])
   const [selected, setSelected] = useState<SlackResult | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
+  useEffect(() => {
+    fetch('/api/slack-status').then(r => r.json()).then(d => setConnected(d.connected)).catch(() => setConnected(false))
+  }, [])
+
   const search = async () => {
-    if (!query.trim() || !token.trim()) return
+    if (!query.trim()) return
     setLoading(true); setError(''); setResults([]); setSelected(null)
     try {
       const resp = await fetch('/api/slack-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ query, token, cookie, workspace, limit: 50 }),
+        body: JSON.stringify({ query, limit: 50 }),
       })
       const data = await resp.json()
       if (data.error) { setError(data.error) } else { setResults(data || []) }
@@ -346,17 +349,14 @@ function SearchTab() {
   return (
     <div className="space-y-3 max-w-4xl">
       <h2 className="text-lg font-semibold text-gray-800">Slack Search</h2>
-      <details className="text-sm">
-        <summary className="cursor-pointer text-gray-500 font-medium">Credentials</summary>
-        <div className="mt-2 space-y-2 p-3 bg-gray-50 rounded-lg">
-          <input value={token} onChange={e => setToken(e.target.value)} placeholder="Token (xoxc-…)" className="w-full border rounded px-2 py-1 text-xs font-mono" />
-          <input value={cookie} onChange={e => setCookie(e.target.value)} placeholder="Cookie (xoxd-…)" className="w-full border rounded px-2 py-1 text-xs font-mono" />
-          <input value={workspace} onChange={e => setWorkspace(e.target.value)} placeholder="Workspace (e.g. company.enterprise.slack.com)" className="w-full border rounded px-2 py-1 text-xs" />
+      {connected === false && (
+        <div className="text-sm bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-yellow-800">
+          Slack credentials not loaded. Save your Chrome "Copy as cURL" to <code className="bg-yellow-100 px-1 rounded">~/.slack-search/.curl</code> and restart, or use <code className="bg-yellow-100 px-1 rounded">--curl-file path</code>.
         </div>
-      </details>
+      )}
       <div className="flex gap-2">
-        <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search Slack…" className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-        <button onClick={search} disabled={loading || !token} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+        <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search Slack… (supports in:#channel from:@user &quot;exact phrase&quot;)" className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        <button onClick={search} disabled={loading || !connected} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
           {loading ? 'Searching…' : 'Search'}
         </button>
       </div>

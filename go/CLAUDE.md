@@ -28,12 +28,20 @@ make test
 ./bin/slack-search
 ```
 
-## Database
+## Data Directory
 
-- **Shared with Python version**: `~/.slack-search/messages.db` (SQLite, WAL mode)
-- **Conversation history**: `~/.slack-search/conversations.db`
-- Schema defined in `internal/db/database.go` — must stay in sync with `../slack_search/database.py`
-- Never modify the schema without updating both Go and Python versions
+Everything lives under `~/.slack-search/` — the binary has zero dependency on the working directory.
+
+| File | Purpose |
+|---|---|
+| `~/.slack-search/messages.db` | Message archive (shared with Python version) |
+| `~/.slack-search/conversations.db` | NLQ conversation history |
+| `~/.slack-search/.curl` | Slack credentials (Chrome "Copy as cURL") |
+| `~/.slack-search/.rht_models.json` | RHT LLM provider config |
+
+The `serve` command auto-detects `.curl` from `~/.slack-search/.curl`. Override with `--curl-file path`.
+
+Schema is defined in `internal/db/database.go` — must stay in sync with `../slack_search/database.py`. Never modify the schema without updating both.
 
 ## LLM Provider
 
