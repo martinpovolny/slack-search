@@ -247,9 +247,18 @@ function NLQTab() {
       <div className="shrink-0 pr-2 space-y-2 overflow-y-auto" style={{ width: convWidth }}>
         <button onClick={newConv} className="w-full text-sm bg-gray-100 hover:bg-gray-200 rounded px-2 py-1">+ New</button>
         {conversations.map(c => (
-          <div key={c.id} title={c.id} className={`flex items-center gap-1 text-xs rounded px-2 py-1 cursor-pointer ${activeConv === c.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
-            <span className="flex-1 truncate" onClick={() => loadConv(c.id)}>{c.title}</span>
-            <button onClick={() => deleteConv(c.id)} className="text-gray-400 hover:text-red-500">✕</button>
+          <div key={c.id} className={`text-xs rounded px-2 py-1 cursor-pointer ${activeConv === c.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
+            <div className="flex items-center gap-1">
+              <span className="flex-1 truncate" onClick={() => loadConv(c.id)}>{c.title}</span>
+              <button onClick={() => deleteConv(c.id)} className="text-gray-400 hover:text-red-500">✕</button>
+            </div>
+            {activeConv === c.id && (
+              <div
+                className="text-[9px] font-mono text-gray-400 truncate cursor-copy hover:text-blue-500 mt-0.5"
+                title="Click to copy"
+                onClick={() => navigator.clipboard.writeText(c.id)}
+              >{c.id}</div>
+            )}
           </div>
         ))}
       </div>
