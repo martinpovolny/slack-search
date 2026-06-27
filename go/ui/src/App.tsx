@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
 type Tab = 'nlq' | 'browse' | 'sql' | 'search'
 
@@ -47,11 +47,17 @@ function App() {
     { key: 'search', label: '🔍 Search' },
   ]
 
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+
   return (
     <div className="flex h-screen bg-white">
       {/* Sidebar */}
+      {sidebarOpen && (
       <aside className="w-64 border-r border-gray-200 p-4 flex flex-col gap-4 overflow-y-auto shrink-0">
-        <h1 className="text-xl font-bold text-gray-800">🔍 Slack Search</h1>
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold text-gray-800">🔍 Slack Search</h1>
+          <button onClick={() => setSidebarOpen(false)} className="text-gray-400 hover:text-gray-600 text-lg" title="Collapse sidebar">◀</button>
+        </div>
         {stats && (
           <div className="text-xs text-gray-500 space-y-1">
             <div>{stats.message_count.toLocaleString()} messages</div>
@@ -93,6 +99,12 @@ function App() {
           </div>
         </div>
       </aside>
+      )}
+      {!sidebarOpen && (
+        <div className="border-r border-gray-200 p-2 flex flex-col items-center shrink-0">
+          <button onClick={() => setSidebarOpen(true)} className="text-gray-400 hover:text-gray-600 text-lg" title="Expand sidebar">▶</button>
+        </div>
+      )}
 
       {/* Main content */}
       <main className="flex-1 flex flex-col overflow-hidden">
@@ -124,6 +136,42 @@ function App() {
         </div>
       </main>
     </div>
+  )
+}
+
+function ResizeDivider({ onResize }: { onResize: (delta: number) => void }) {
+  const dragging = useRef(false)
+  const lastX = useRef(0)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    dragging.current = true
+    lastX.current = e.clientX
+    e.preventDefault()
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = e.clientX - lastX.current
+      lastX.current = e.clientX
+      onResize(delta)
+    }
+    const onMouseUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+  }, [onResize])
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      className="w-1 shrink-0 cursor-col-resize hover:bg-blue-300 active:bg-blue-400 bg-gray-200 transition-colors"
+    />
   )
 }
 
@@ -190,10 +238,12 @@ function NLQTab() {
     setLoading(false)
   }
 
+  const [convWidth, setConvWidth] = useState(192)
+
   return (
-    <div className="flex gap-4 h-full">
+    <div className="flex h-full">
       {/* Conversation list */}
-      <div className="w-48 shrink-0 border-r pr-3 space-y-2">
+      <div className="shrink-0 pr-2 space-y-2 overflow-y-auto" style={{ width: convWidth }}>
         <button onClick={newConv} className="w-full text-sm bg-gray-100 hover:bg-gray-200 rounded px-2 py-1">+ New</button>
         {conversations.map(c => (
           <div key={c.id} className={`flex items-center gap-1 text-xs rounded px-2 py-1 cursor-pointer ${activeConv === c.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
@@ -203,8 +253,10 @@ function NLQTab() {
         ))}
       </div>
 
+      <ResizeDivider onResize={delta => setConvWidth(w => Math.max(100, Math.min(400, w + delta)))} />
+
       {/* Chat area */}
-      <div className="flex-1 flex flex-col max-w-3xl">
+      <div className="flex-1 flex flex-col max-w-3xl pl-3">
         <div className="flex-1 overflow-y-auto space-y-3 pb-4">
           {messages.map((m, i) => (
             <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
