@@ -11,10 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"regexp"
+
 	"github.com/martinpovolny/slack-search/internal/api"
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/download"
 	"github.com/martinpovolny/slack-search/internal/eval"
+	"github.com/martinpovolny/slack-search/internal/format"
 	"github.com/martinpovolny/slack-search/internal/nlq"
 	"github.com/martinpovolny/slack-search/internal/search"
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
@@ -311,12 +314,48 @@ func cmdGrep(dbPath string) {
 		log.Fatal(err)
 	}
 
+	// Resolve mentions
+	texts := make([]string, len(results))
+	for i, r := range results {
+		texts[i] = r.Text
+	}
+	uids := format.ExtractUIDs(texts)
+	userMap := format.BuildUserMap(conn, uids)
+
+	// Build highlight regex
+	var hlRe *regexp.Regexp
+	if fixedStr != "" {
+		hlRe = regexp.MustCompile("(?i)" + regexp.QuoteMeta(fixedStr))
+	} else if pattern != "" {
+		hlRe, _ = regexp.Compile("(?i)" + pattern)
+	}
+
+	const (
+		colorReset  = "\033[0m"
+		colorDim    = "\033[2m"
+		colorBold   = "\033[1m"
+		colorCyan   = "\033[36m"
+		colorYellow = "\033[33m"
+		colorRed    = "\033[91m"
+		colorPurple = "\033[35m"
+	)
+
 	for _, r := range results {
 		prefix := ""
 		if r.ThreadTS != "" && r.ThreadTS != r.TS {
 			prefix = "↳ "
 		}
-		fmt.Printf("[%s] #%s %s: %s%s\n", r.Time, r.Channel, r.Author, prefix, r.Text)
+		text := format.ResolveMentions(r.Text, userMap)
+		if hlRe != nil {
+			text = hlRe.ReplaceAllStringFunc(text, func(m string) string {
+				return colorRed + colorBold + m + colorReset
+			})
+		}
+		fmt.Printf("%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
+			colorDim, r.Time, colorReset,
+			colorCyan, r.Channel, colorReset,
+			colorYellow, r.Author, colorReset,
+			prefix, text)
 	}
 	fmt.Printf("\n%d result(s)\n", len(results))
 }

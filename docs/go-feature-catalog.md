@@ -14,7 +14,7 @@ Feature tracking for the Go reimplementation of slack-search.
 | F03 | search (raw SQL) | done | done | Execute SQL, table output |
 | F04 | schema | done | done | Show DB schema |
 | F05 | nlq | done | done | NL→SQL with synthesis (not live-tested yet) |
-| F06 | grep | done | done | Regex/literal search |
+| F06 | grep | done | done | Regex/literal search, color highlights, mention resolution |
 | F07 | live-search | done | done | Slack search API + local caching (CLI only) |
 | **Core** |
 | F08 | Slack API client | done | done | POST form-body auth, rate limiting, retries |
@@ -59,8 +59,25 @@ Feature tracking for the Go reimplementation of slack-search.
 1. ~~F23: Launchd compatibility~~
 2. ~~F22: Eval framework~~
 
+## Known Gaps (Go vs Python)
+
+| Area | Gap | Priority |
+|------|-----|----------|
+| CLI | `--since` only takes timestamps, not human dates ("3 weeks ago") | medium |
+| CLI | No `--pager` / `-P` flag for piping through less | low |
+| CLI | `grep -E` regex: SQLite REGEXP function not registered | high |
+| CLI | No `live-search` subcommand (only via web UI API) | low |
+| CLI | No `--check-missing` gap filling in download | low |
+| Web UI | Browse: no Slack deep-links (slack://open) | medium |
+| Web UI | Browse: no keyword highlighting in message detail view | medium |
+| Web UI | NLQ: no streaming response display | medium |
+| Web UI | NLQ: no channel filter in prompt augmentation | medium |
+| Web UI | NLQ: no max-rows selector | low |
+| Web UI | Sidebar: no schema reference expander | low |
+
 ## Backlog
 
 | Code | Feature | Notes |
 |------|---------|-------|
 | F24 | User name filter in sidebar/browse | Filter by login, full name; prototype in Python first, then port to Go |
+| F25 | MCP server | Expose slack-search as an MCP server — lets Claude Code, Cursor, and other agents query the Slack archive directly via tools (search, grep, nlq). Go binary would serve both the web UI and MCP over stdio/SSE. |
