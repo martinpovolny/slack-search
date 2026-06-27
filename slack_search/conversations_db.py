@@ -24,13 +24,20 @@ CREATE TABLE IF NOT EXISTS messages (
     conversation_id TEXT NOT NULL,
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
-    sql             TEXT,
+    sql_text        TEXT,
     created_at      REAL NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
 
 CREATE INDEX IF NOT EXISTS idx_msg_conv ON messages(conversation_id, created_at);
 """
+
+
+def _migrate_conversations(conn: sqlite3.Connection) -> None:
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
+    if "sql" in cols and "sql_text" not in cols:
+        conn.execute("ALTER TABLE messages RENAME COLUMN sql TO sql_text")
+        conn.commit()
 
 
 def open_conversations_db(path: Path) -> sqlite3.Connection:
@@ -40,6 +47,7 @@ def open_conversations_db(path: Path) -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.executescript(SCHEMA)
+    _migrate_conversations(conn)
     conn.commit()
     return conn
 
@@ -80,7 +88,7 @@ def delete_conversation(conn: sqlite3.Connection, cid: str) -> None:
 
 def load_messages(conn: sqlite3.Connection, cid: str) -> list[dict]:
     rows = conn.execute(
-        "SELECT role, content, sql FROM messages WHERE conversation_id=? ORDER BY created_at",
+        "SELECT role, content, sql_text as sql FROM messages WHERE conversation_id=? ORDER BY created_at",
         (cid,),
     ).fetchall()
     return [
@@ -97,7 +105,7 @@ def append_message(
     sql: Optional[str] = None,
 ) -> None:
     conn.execute(
-        "INSERT INTO messages(conversation_id, role, content, sql, created_at) VALUES (?,?,?,?,?)",
+        "INSERT INTO messages(conversation_id, role, content, sql_text, created_at) VALUES (?,?,?,?,?)",
         (cid, role, content, sql, time.time()),
     )
     touch_conversation(conn, cid)
