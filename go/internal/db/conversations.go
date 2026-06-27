@@ -52,11 +52,10 @@ type Conversation struct {
 	UpdatedAt float64 `json:"updated_at"`
 }
 
-// ListConversations returns all conversations for a user, newest first.
-func ListConversations(db *sql.DB, userID string) ([]Conversation, error) {
+// ListConversations returns all conversations, newest first.
+func ListConversations(db *sql.DB) ([]Conversation, error) {
 	rows, err := db.Query(
-		"SELECT id, title, updated_at FROM conversations WHERE user_id=? ORDER BY updated_at DESC",
-		userID,
+		"SELECT id, title, updated_at FROM conversations ORDER BY updated_at DESC",
 	)
 	if err != nil {
 		return nil, err
@@ -75,12 +74,12 @@ func ListConversations(db *sql.DB, userID string) ([]Conversation, error) {
 }
 
 // CreateConversation creates a new conversation and returns its ID.
-func CreateConversation(db *sql.DB, userID string) (string, error) {
+func CreateConversation(db *sql.DB) (string, error) {
 	id := uuid.New().String()
 	now := float64(time.Now().UnixMilli()) / 1000.0
 	_, err := db.Exec(
 		"INSERT INTO conversations(id, user_id, title, created_at, updated_at) VALUES (?,?,?,?,?)",
-		id, userID, "New conversation", now, now,
+		id, "default", "New conversation", now, now,
 	)
 	return id, err
 }

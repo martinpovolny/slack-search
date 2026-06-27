@@ -246,7 +246,7 @@ func (h *Handler) handleConversations(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case "GET":
-		convs, err := db.ListConversations(h.convDB, "default")
+		convs, err := db.ListConversations(h.convDB)
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
@@ -256,7 +256,7 @@ func (h *Handler) handleConversations(w http.ResponseWriter, r *http.Request) {
 		}
 		json.NewEncoder(w).Encode(convs)
 	case "POST":
-		id, err := db.CreateConversation(h.convDB, "default")
+		id, err := db.CreateConversation(h.convDB)
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
