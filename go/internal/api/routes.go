@@ -30,11 +30,12 @@ type Handler struct {
 	convDB      *sql.DB
 	slackClient *slackclient.Client
 	dbPath      string
+	workspace   string
 	mux         *http.ServeMux
 }
 
-func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Client, dbPath string) *Handler {
-	h := &Handler{db: database, convDB: convDB, slackClient: slackClient, dbPath: dbPath}
+func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Client, dbPath, workspace string) *Handler {
+	h := &Handler{db: database, convDB: convDB, slackClient: slackClient, dbPath: dbPath, workspace: workspace}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/channels", h.handleChannels)
 	mux.HandleFunc("/api/search", h.handleSearch)
@@ -234,6 +235,7 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 		"channel_count": chCount,
 		"oldest":        oldest.String,
 		"newest":        newest.String,
+		"workspace":     h.workspace,
 	})
 }
 

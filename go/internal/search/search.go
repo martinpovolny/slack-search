@@ -80,12 +80,13 @@ type GrepOptions struct {
 
 // GrepResult holds one grep match.
 type GrepResult struct {
-	Time     string
-	Channel  string
-	Author   string
-	Text     string
-	TS       string
-	ThreadTS string
+	Time      string `json:"Time"`
+	Channel   string `json:"Channel"`
+	ChannelID string `json:"ChannelID"`
+	Author    string `json:"Author"`
+	Text      string `json:"Text"`
+	TS        string `json:"TS"`
+	ThreadTS  string `json:"ThreadTS"`
 }
 
 // Grep searches messages by text pattern.
@@ -149,6 +150,7 @@ func Grep(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 	query := fmt.Sprintf(`
 		SELECT datetime(m.timestamp, 'unixepoch') as time,
 		       c.name as channel,
+		       c.id as channel_id,
 		       COALESCE(u.real_name, u.display_name, m.username, '') as author,
 		       m.text,
 		       m.ts,
@@ -172,7 +174,7 @@ func Grep(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 	for rows.Next() {
 		var r GrepResult
 		var threadTS sql.NullString
-		if err := rows.Scan(&r.Time, &r.Channel, &r.Author, &r.Text, &r.TS, &threadTS); err != nil {
+		if err := rows.Scan(&r.Time, &r.Channel, &r.ChannelID, &r.Author, &r.Text, &r.TS, &threadTS); err != nil {
 			return nil, err
 		}
 		r.ThreadTS = threadTS.String

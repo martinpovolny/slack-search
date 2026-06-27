@@ -427,6 +427,7 @@ func cmdServe(dbPath string) {
 
 	// Load Slack credentials if --curl-file provided
 	var slackClient *slackclient.Client
+	var workspace string
 	if curlFile == "" {
 		// Auto-detect .curl in ~/.slack-search/
 		defaultCurl := filepath.Join(filepath.Dir(dbPath), ".curl")
@@ -444,6 +445,7 @@ func cmdServe(dbPath string) {
 				log.Printf("Warning: cannot parse curl: %v", err)
 			} else {
 				slackClient = slackclient.NewClient(creds.Token, creds.Cookie, creds.Workspace, creds.RawCookies)
+				workspace = creds.Workspace
 				log.Printf("Slack credentials loaded from %s (workspace: %s)", curlFile, creds.Workspace)
 			}
 		}
@@ -454,7 +456,7 @@ func cmdServe(dbPath string) {
 	// API routes
 	api.Commit = commit
 	api.BuildTime = buildTime
-	apiHandler := api.NewHandler(conn, convDB, slackClient, dbPath)
+	apiHandler := api.NewHandler(conn, convDB, slackClient, dbPath, workspace)
 	mux.Handle("/api/", apiHandler)
 
 	// Health check

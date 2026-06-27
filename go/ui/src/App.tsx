@@ -16,6 +16,7 @@ interface SearchResult {
 interface GrepResult {
   Time: string
   Channel: string
+  ChannelID: string
   Author: string
   Text: string
   TS: string
@@ -26,7 +27,7 @@ function App() {
   const [tab, setTab] = useState<Tab>('browse')
   const [browseChannel, setBrowseChannel] = useState('')
   const [channels, setChannels] = useState<Channel[]>([])
-  const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string } | null>(null)
+  const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string; workspace: string } | null>(null)
   const [rt, setRt] = useState<{
     commit: string; go_version: string; os: string; arch: string;
     uptime_sec: number; alloc_mb: number; sys_mb: number;
@@ -130,7 +131,7 @@ function App() {
         {/* Tab content */}
         <div className="flex-1 overflow-y-auto p-4">
           {tab === 'nlq' && <NLQTab />}
-          {tab === 'browse' && <BrowseTab channels={channels} initialChannel={browseChannel} />}
+          {tab === 'browse' && <BrowseTab channels={channels} initialChannel={browseChannel} workspace={stats?.workspace || ''} />}
           {tab === 'sql' && <SQLTab />}
           {tab === 'search' && <SearchTab />}
         </div>
@@ -288,7 +289,11 @@ function NLQTab() {
   )
 }
 
-function BrowseTab({ channels, initialChannel }: { channels: Channel[]; initialChannel?: string }) {
+function slackPermalink(workspace: string, channelID: string, ts: string): string {
+  return `https://${workspace}/archives/${channelID}/p${ts.replace('.', '')}`
+}
+
+function BrowseTab({ channels, initialChannel, workspace }: { channels: Channel[]; initialChannel?: string; workspace: string }) {
   const [text, setText] = useState('')
   const [channel, setChannel] = useState(initialChannel || '')
   const [person, setPerson] = useState('')
@@ -365,7 +370,17 @@ function BrowseTab({ channels, initialChannel }: { channels: Channel[]; initialC
 
       {selected && (
         <div className="bg-gray-50 rounded-lg p-4 border space-y-2">
-          <div className="text-xs text-gray-500">{selected.Time} &middot; #{selected.Channel} &middot; <span className="font-medium text-gray-700">{selected.Author}</span></div>
+          <div className="text-xs text-gray-500">
+            {selected.Time} &middot; #{selected.Channel} &middot; <span className="font-medium text-gray-700">{selected.Author}</span>
+            {workspace && selected.ChannelID && (
+              <>
+                {' '}&middot;{' '}
+                <a href={slackPermalink(workspace, selected.ChannelID, selected.TS)} target="_blank" className="text-blue-500 hover:underline">Open in Slack ↗</a>
+                {' '}
+                <a href={`slack://open?url=${encodeURIComponent(slackPermalink(workspace, selected.ChannelID, selected.TS))}`} className="text-blue-500 hover:underline">App ↗</a>
+              </>
+            )}
+          </div>
           <div className="text-sm whitespace-pre-wrap">{selected.Text}</div>
         </div>
       )}
