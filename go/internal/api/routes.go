@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/nlq"
@@ -14,15 +17,24 @@ import (
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
 )
 
+var startTime = time.Now()
+
+// Injected at build time via main.
+var (
+	Commit    = "dev"
+	BuildTime = "unknown"
+)
+
 type Handler struct {
 	db          *sql.DB
 	convDB      *sql.DB
 	slackClient *slackclient.Client
+	dbPath      string
 	mux         *http.ServeMux
 }
 
-func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Client) *Handler {
-	h := &Handler{db: database, convDB: convDB, slackClient: slackClient}
+func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Client, dbPath string) *Handler {
+	h := &Handler{db: database, convDB: convDB, slackClient: slackClient, dbPath: dbPath}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/channels", h.handleChannels)
 	mux.HandleFunc("/api/search", h.handleSearch)
@@ -35,6 +47,7 @@ func NewHandler(database *sql.DB, convDB *sql.DB, slackClient *slackclient.Clien
 	mux.HandleFunc("/api/conversations/", h.handleConversation)
 	mux.HandleFunc("/api/slack-search", h.handleSlackSearch)
 	mux.HandleFunc("/api/slack-status", h.handleSlackStatus)
+	mux.HandleFunc("/api/runtime", h.handleRuntime)
 	h.mux = mux
 	return h
 }
@@ -310,6 +323,43 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleSlackStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]bool{"connected": h.slackClient != nil})
+}
+
+func (h *Handler) handleRuntime(w http.ResponseWriter, r *http.Request) {
+	var mem runtime.MemStats
+	runtime.ReadMemStats(&mem)
+
+	uptime := time.Since(startTime)
+
+	var dbSize int64
+	if fi, err := os.Stat(h.dbPath); err == nil {
+		dbSize = fi.Size()
+	}
+
+	// Last refresh: oldest latest_ts across subscribed channels
+	var lastRefresh sql.NullString
+	h.db.QueryRow(`
+		SELECT datetime(min(CAST(ds.latest_ts AS REAL)), 'unixepoch')
+		FROM download_state ds
+		JOIN channels c ON ds.channel_id = c.id
+		WHERE c.subscribed = 1
+	`).Scan(&lastRefresh)
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"commit":       Commit,
+		"build_time":   BuildTime,
+		"go_version":   runtime.Version(),
+		"os":           runtime.GOOS,
+		"arch":         runtime.GOARCH,
+		"uptime_sec":   int(uptime.Seconds()),
+		"goroutines":   runtime.NumGoroutine(),
+		"alloc_mb":     float64(mem.Alloc) / 1024 / 1024,
+		"sys_mb":       float64(mem.Sys) / 1024 / 1024,
+		"gc_cycles":    mem.NumGC,
+		"heap_objects": mem.HeapObjects,
+		"db_size_mb":   float64(dbSize) / 1024 / 1024,
+		"last_refresh": lastRefresh.String,
+	})
 }
 
 func (h *Handler) handleSlackSearch(w http.ResponseWriter, r *http.Request) {

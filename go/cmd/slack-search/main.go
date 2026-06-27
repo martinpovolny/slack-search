@@ -413,7 +413,9 @@ func cmdServe(dbPath string) {
 	mux := http.NewServeMux()
 
 	// API routes
-	apiHandler := api.NewHandler(conn, convDB, slackClient)
+	api.Commit = commit
+	api.BuildTime = buildTime
+	apiHandler := api.NewHandler(conn, convDB, slackClient, dbPath)
 	mux.Handle("/api/", apiHandler)
 
 	// Health check

@@ -26,10 +26,17 @@ function App() {
   const [tab, setTab] = useState<Tab>('browse')
   const [channels, setChannels] = useState<Channel[]>([])
   const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string } | null>(null)
+  const [rt, setRt] = useState<{
+    commit: string; go_version: string; os: string; arch: string;
+    uptime_sec: number; alloc_mb: number; sys_mb: number;
+    goroutines: number; gc_cycles: number; heap_objects: number;
+    db_size_mb: number; last_refresh: string;
+  } | null>(null)
 
   useEffect(() => {
     fetch('/api/channels').then(r => r.json()).then(setChannels).catch(() => {})
     fetch('/api/stats').then(r => r.json()).then(setStats).catch(() => {})
+    fetch('/api/runtime').then(r => r.json()).then(setRt).catch(() => {})
   }, [])
 
   const tabs: { key: Tab; label: string }[] = [
@@ -60,6 +67,18 @@ function App() {
             ))}
           </div>
         </div>
+        {rt && (
+          <div className="text-xs text-gray-400 space-y-0.5 pt-2 border-t border-gray-200">
+            <div className="text-gray-500 font-medium text-[10px] uppercase tracking-wide mb-1">Process</div>
+            <div>commit: <span className="font-mono text-gray-500">{rt.commit.slice(0, 8)}</span></div>
+            <div>{rt.go_version} · {rt.os}/{rt.arch}</div>
+            <div>mem: {rt.alloc_mb.toFixed(1)} MB alloc / {rt.sys_mb.toFixed(1)} MB sys</div>
+            <div>goroutines: {rt.goroutines} · GC: {rt.gc_cycles}</div>
+            <div>DB: {rt.db_size_mb.toFixed(1)} MB</div>
+            <div>uptime: {Math.floor(rt.uptime_sec / 60)}m</div>
+            {rt.last_refresh && <div>last refresh: {rt.last_refresh}</div>}
+          </div>
+        )}
         <div className="text-xs text-gray-400 space-y-1 pt-2 border-t border-gray-200">
           <div className="text-gray-500 font-medium">Martin Povolny</div>
           <div><a href="mailto:martin.povolny@gmail.com" className="hover:text-gray-600">martin.povolny@gmail.com</a></div>
