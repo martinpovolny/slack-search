@@ -261,9 +261,9 @@ function NLQTab() {
           {messages.map((m, i) => (
             <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
               <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
-                <div className="whitespace-pre-wrap">{m.content}</div>
+                <MessageContent text={m.content} />
                 {m.sql && (
-                  <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1">{m.sql}</pre></details>
+                  <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1 bg-gray-200 p-2 rounded overflow-x-auto">{m.sql}</pre></details>
                 )}
               </div>
               {m.result?.Result && <div className="mt-2"><DataTable data={m.result.Result} /></div>}
@@ -488,6 +488,31 @@ function SearchTab() {
       )}
     </div>
   )
+}
+
+function MessageContent({ text }: { text: string }) {
+  if (!text) return null
+  const codeBlockRe = /```(\w*)\n?([\s\S]*?)```/g
+  const parts: JSX.Element[] = []
+  let lastIdx = 0
+  let match
+  let key = 0
+
+  while ((match = codeBlockRe.exec(text)) !== null) {
+    if (match.index > lastIdx) {
+      parts.push(<span key={key++} className="whitespace-pre-wrap">{text.slice(lastIdx, match.index)}</span>)
+    }
+    parts.push(
+      <pre key={key++} className="bg-gray-200 text-gray-800 p-2 rounded my-1 overflow-x-auto text-xs font-mono">
+        {match[2].trim()}
+      </pre>
+    )
+    lastIdx = match.index + match[0].length
+  }
+  if (lastIdx < text.length) {
+    parts.push(<span key={key++} className="whitespace-pre-wrap">{text.slice(lastIdx)}</span>)
+  }
+  return <div>{parts}</div>
 }
 
 function DataTable({ data }: { data: SearchResult }) {
