@@ -40,9 +40,8 @@ load_dotenv()
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
-OPENCODE_API_KEY = os.getenv("OPENCODE_API_KEY", "").strip()
-OPENCODE_BASE_URL = "https://opencode.ai/zen/go/v1"
-OPENCODE_MODELS = ["qwen3.6-plus", "qwen3.5-plus"]
+LITE_MAAS_KEY = os.getenv("LITE_MAAS_KEY", "").strip()
+LITE_MAAS_BASE_URL = os.getenv("LITE_MAAS_BASE_URL", "").strip()
 
 LM_STUDIO_HOST = os.getenv("LM_STUDIO_HOST", "localhost")
 LM_STUDIO_PORT = os.getenv("LM_STUDIO_PORT", "1234")
@@ -57,6 +56,25 @@ def _load_rht_models() -> tuple[str, dict]:
         return "", {}
     data = json.loads(RHT_MODELS_FILE.read_text())
     return data.get("url_template", ""), data.get("models", {})
+
+
+@st.cache_data(ttl=300)
+def _fetch_litemaas_models() -> list[str]:
+    """Fetch chat-capable models from LiteMaaS; return empty list if unreachable."""
+    try:
+        import requests as _req
+        resp = _req.get(
+            f"{LITE_MAAS_BASE_URL}/models",
+            headers={"Authorization": f"Bearer {LITE_MAAS_KEY}"},
+            timeout=5, verify=False,
+        )
+        if resp.ok:
+            data = resp.json()
+            return [m["id"] for m in data.get("data", [])
+                    if m.get("id") and m["id"] != "Nomic-embed-text-v2-moe"]
+    except Exception:
+        pass
+    return []
 
 
 @st.cache_data(ttl=60)
@@ -144,8 +162,8 @@ def _http_client() -> httpx.Client | None:
 def make_client(provider: str, model: str = "") -> OpenAI:
     http = _http_client()
     kwargs = {"http_client": http} if http else {}
-    if provider == "OpenCode.ai":
-        return OpenAI(api_key=OPENCODE_API_KEY, base_url=OPENCODE_BASE_URL, **kwargs)
+    if provider == "LiteMaaS":
+        return OpenAI(api_key=LITE_MAAS_KEY, base_url=LITE_MAAS_BASE_URL, **kwargs)
     if provider == "LM Studio (local)":
         return OpenAI(api_key="local", base_url=LM_STUDIO_BASE_URL, **kwargs)
     if provider == "RHT models.corp":
@@ -339,14 +357,15 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
         rht_base_url, rht_model_keys = _load_rht_models()
         if rht_model_keys:
             providers.append("RHT models.corp")
-        if OPENCODE_API_KEY:
-            providers.append("OpenCode.ai")
+        litemaas_models = _fetch_litemaas_models() if LITE_MAAS_KEY and LITE_MAAS_BASE_URL else []
+        if litemaas_models:
+            providers.append("LiteMaaS")
         lm_studio_models = _fetch_lm_studio_models()
         if lm_studio_models:
             providers.append("LM Studio (local)")
 
         if not providers:
-            st.error("No LLM configured. Add OPENCODE_API_KEY to .env, start LM Studio, or add .rht_models.json.")
+            st.error("No LLM configured. Add LITE_MAAS_KEY to .env, start LM Studio, or add .rht_models.json.")
             provider = model = ""
         else:
             provider = st.selectbox("Provider", providers)
@@ -354,8 +373,10 @@ def render_sidebar(conv_conn: sqlite3.Connection) -> tuple[sqlite3.Connection | 
                 model = st.selectbox("Model", lm_studio_models)
             elif provider == "RHT models.corp":
                 model = st.selectbox("Model", list(rht_model_keys.keys()))
+            elif provider == "LiteMaaS":
+                model = st.selectbox("Model", litemaas_models)
             else:
-                model = st.selectbox("Model", OPENCODE_MODELS)
+                model = st.selectbox("Model", [])
 
         st.divider()
 
@@ -443,7 +464,7 @@ def render_nlq(
     # Handle pending synthesis (triggered by "Summarise" button on a past message)
     if pending := st.session_state.pop("pending_synthesise", None):
         client = make_client(provider, model)
-        effective_model = api_model_id(provider, model or OPENCODE_MODELS[0])
+        effective_model = api_model_id(provider, model)
         sql = pending["sql"]
         question = pending["question"]
         df = pending["df"]
@@ -541,7 +562,7 @@ def render_nlq(
 
     # Stream response
     client = make_client(provider, model)
-    effective_model = api_model_id(provider, model or OPENCODE_MODELS[0])
+    effective_model = api_model_id(provider, model)
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_response = ""
