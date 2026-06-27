@@ -61,19 +61,19 @@ Feature tracking for the Go reimplementation of slack-search.
 
 ## Known Gaps (Go vs Python)
 
-| Area | Gap | Priority |
-|------|-----|----------|
-| CLI | `--since` only takes timestamps, not human dates ("3 weeks ago") | medium |
-| CLI | No `--pager` / `-P` flag for piping through less | low |
-| CLI | `grep -E` regex: SQLite REGEXP function not registered | high |
-| CLI | No `live-search` subcommand (only via web UI API) | low |
-| CLI | No `--check-missing` gap filling in download | low |
-| Web UI | Browse: no Slack deep-links (slack://open) | medium |
-| Web UI | Browse: no keyword highlighting in message detail view | medium |
-| Web UI | NLQ: no streaming response display | medium |
-| Web UI | NLQ: no channel filter in prompt augmentation | medium |
-| Web UI | NLQ: no max-rows selector | low |
-| Web UI | Sidebar: no schema reference expander | low |
+| # | Area | Gap | Priority |
+|---|------|-----|----------|
+| G01 | CLI | `--since` only takes timestamps, not human dates ("3 weeks ago") | medium |
+| G02 | CLI | No `--pager` / `-P` flag for piping through less | low |
+| G03 | CLI | `grep -E` regex: SQLite REGEXP function not registered | high |
+| G04 | CLI | No `live-search` subcommand (only via web UI API) | low |
+| G05 | CLI | No `--check-missing` gap filling in download | low |
+| G06 | Web UI | Browse: no Slack deep-links (slack://open) | medium |
+| G07 | Web UI | Browse: no keyword highlighting in message detail view | medium |
+| G08 | Web UI | NLQ: no streaming response display | medium |
+| G09 | Web UI | NLQ: no channel filter in prompt augmentation | medium |
+| G10 | Web UI | NLQ: no max-rows selector | low |
+| G11 | Web UI | Sidebar: no schema reference expander | low |
 
 ## Backlog
 
