@@ -1,5 +1,11 @@
 #compdef slack-search
 
+_slack_search_channels() {
+  local -a chans
+  chans=(${(f)"$(sqlite3 ~/.slack-search/messages.db "SELECT name FROM channels WHERE subscribed=1 ORDER BY name" 2>/dev/null)"})
+  compadd -a chans
+}
+
 _slack-search() {
   local -a commands
   commands=(
@@ -31,7 +37,7 @@ _slack-search() {
             '--token[Slack token (xoxp-/xoxb-/xoxc-)]:token:' \
             '--cookie[Session cookie value (xoxc- only)]:cookie:' \
             '--workspace[Workspace hostname]:hostname:' \
-            '--channel[Channel name or ID]:channel:' \
+            '--channel[Channel name or ID]:channel:_slack_search_channels' \
             '--since[Fetch messages after this date/timestamp]:date:' \
             '--no-threads[Skip fetching thread replies]'
           ;;
@@ -57,7 +63,7 @@ _slack-search() {
           _arguments \
             '-F[Fixed string search]:string:' \
             '-E[Regex pattern search]:pattern:' \
-            '*-c[Channel name or ID]:channel:' \
+            '*-c[Channel name or ID]:channel:_slack_search_channels' \
             '--since[Since timestamp or date]:date:' \
             '--until[Until timestamp or date]:date:' \
             '-p[Person name (partial match)]:person:' \
