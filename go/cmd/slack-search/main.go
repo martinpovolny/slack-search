@@ -14,6 +14,7 @@ import (
 	"github.com/martinpovolny/slack-search/internal/api"
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/download"
+	"github.com/martinpovolny/slack-search/internal/eval"
 	"github.com/martinpovolny/slack-search/internal/nlq"
 	"github.com/martinpovolny/slack-search/internal/search"
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
@@ -46,6 +47,8 @@ func main() {
 		cmdNLQ(dbPath)
 	case "grep":
 		cmdGrep(dbPath)
+	case "eval":
+		cmdEval(dbPath)
 	case "serve":
 		cmdServe(dbPath)
 	case "version":
@@ -69,6 +72,7 @@ Commands:
   schema      Show the database schema
   nlq         Natural language query (NL → SQL)
   grep        Search messages by text or regex
+  eval        Run NLQ evaluation test suite
   serve       Start the web UI server
 
   version     Show version info
@@ -317,6 +321,55 @@ func cmdGrep(dbPath string) {
 	fmt.Printf("\n%d result(s)\n", len(results))
 }
 
+func cmdEval(dbPath string) {
+	fs := flag.NewFlagSet("eval", flag.ExitOnError)
+	var modelName, testDir, resultsDir string
+	fs.StringVar(&modelName, "model", "", "RHT model name")
+	fs.StringVar(&testDir, "tests", "tests", "Directory with test case JSON files")
+	fs.StringVar(&resultsDir, "results", "tests/results", "Directory for result output")
+	fs.Parse(os.Args[2:])
+
+	config, err := nlq.LoadRHTConfig()
+	if err != nil {
+		log.Fatalf("Cannot load LLM config: %v", err)
+	}
+	if modelName == "" {
+		for k := range config.Models {
+			modelName = k
+			break
+		}
+	}
+	baseURL, apiKey, apiModelID, err := config.Endpoint(modelName)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	tests, err := eval.LoadTests(testDir)
+	if err != nil {
+		log.Fatalf("Cannot load tests: %v", err)
+	}
+	if len(tests) == 0 {
+		fmt.Printf("No test cases found in %s\n", testDir)
+		return
+	}
+
+	conn := openDB(dbPath)
+	defer conn.Close()
+
+	fmt.Printf("Running %d tests with model %s…\n\n", len(tests), modelName)
+	results := eval.RunEval(conn, tests, baseURL, apiKey, apiModelID)
+
+	fmt.Println()
+	eval.PrintSummary(results)
+
+	path, err := eval.SaveResults(results, resultsDir)
+	if err != nil {
+		log.Printf("Warning: could not save results: %v", err)
+	} else {
+		fmt.Printf("Results saved to %s\n", path)
+	}
+}
+
 func cmdServe(dbPath string) {
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
 	var addr string
@@ -325,10 +378,17 @@ func cmdServe(dbPath string) {
 
 	conn := openDB(dbPath)
 
+	// Open conversations DB
+	convDBPath := filepath.Join(filepath.Dir(dbPath), "conversations.db")
+	convDB, err := db.OpenConversationsDB(convDBPath)
+	if err != nil {
+		log.Printf("Warning: could not open conversations DB: %v", err)
+	}
+
 	mux := http.NewServeMux()
 
 	// API routes
-	apiHandler := api.NewHandler(conn)
+	apiHandler := api.NewHandler(conn, convDB)
 	mux.Handle("/api/", apiHandler)
 
 	// Health check

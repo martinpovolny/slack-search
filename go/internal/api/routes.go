@@ -6,19 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/nlq"
 	"github.com/martinpovolny/slack-search/internal/search"
+	slackclient "github.com/martinpovolny/slack-search/internal/slack"
 )
 
 type Handler struct {
-	db  *sql.DB
-	mux *http.ServeMux
+	db     *sql.DB
+	convDB *sql.DB
+	mux    *http.ServeMux
 }
 
-func NewHandler(database *sql.DB) *Handler {
-	h := &Handler{db: database}
+func NewHandler(database *sql.DB, convDB *sql.DB) *Handler {
+	h := &Handler{db: database, convDB: convDB}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/channels", h.handleChannels)
 	mux.HandleFunc("/api/search", h.handleSearch)
@@ -27,6 +30,9 @@ func NewHandler(database *sql.DB) *Handler {
 	mux.HandleFunc("/api/nlq", h.handleNLQ)
 	mux.HandleFunc("/api/messages", h.handleMessages)
 	mux.HandleFunc("/api/stats", h.handleStats)
+	mux.HandleFunc("/api/conversations", h.handleConversations)
+	mux.HandleFunc("/api/conversations/", h.handleConversation)
+	mux.HandleFunc("/api/slack-search", h.handleSlackSearch)
 	h.mux = mux
 	return h
 }
@@ -56,7 +62,6 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "missing 'q' parameter", 400)
 		return
 	}
-
 	result, err := search.RunSQL(h.db, query)
 	if err != nil {
 		jsonError(w, err.Error(), 400)
@@ -77,7 +82,6 @@ func (h *Handler) handleGrep(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-
 	results, err := search.Grep(h.db, search.GrepOptions{
 		FixedString: q.Get("string"),
 		Pattern:     q.Get("pattern"),
@@ -99,11 +103,11 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, "POST required", 405)
 		return
 	}
-
 	var req struct {
-		Question string `json:"question"`
-		Model    string `json:"model"`
-		MaxRows  int    `json:"max_rows"`
+		Question       string `json:"question"`
+		Model          string `json:"model"`
+		MaxRows        int    `json:"max_rows"`
+		ConversationID string `json:"conversation_id"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		jsonError(w, "invalid request body", 400)
@@ -119,7 +123,6 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, fmt.Sprintf("LLM config error: %v", err), 500)
 		return
 	}
-
 	modelName := req.Model
 	if modelName == "" {
 		for k := range config.Models {
@@ -127,16 +130,19 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
-
 	baseURL, apiKey, apiModelID, err := config.Endpoint(modelName)
 	if err != nil {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-
 	maxRows := req.MaxRows
 	if maxRows <= 0 {
 		maxRows = nlq.DefaultMaxRows
+	}
+
+	// Save user message to conversation
+	if req.ConversationID != "" && h.convDB != nil {
+		db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "")
 	}
 
 	result, qErr := nlq.RunQuery(h.db, req.Question, baseURL, apiKey, apiModelID, maxRows)
@@ -144,6 +150,24 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, qErr.Error(), 500)
 		return
 	}
+
+	// Save assistant response to conversation
+	if req.ConversationID != "" && h.convDB != nil && result != nil {
+		content := result.Answer
+		if content == "" && result.SQL != "" {
+			content = "SQL: " + result.SQL
+		}
+		sqlText := result.SQL
+		db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText)
+
+		// Auto-title on first exchange
+		convs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)
+		if len(convs) <= 2 {
+			title := db.AutoTitle(req.Question, 60)
+			db.RenameConversation(h.convDB, req.ConversationID, title)
+		}
+	}
+
 	json.NewEncoder(w).Encode(result)
 }
 
@@ -155,7 +179,6 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 			limit = n
 		}
 	}
-
 	channel := q.Get("channel")
 	person := q.Get("person")
 	text := q.Get("text")
@@ -163,13 +186,8 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 	until := q.Get("until")
 	useRegexp := q.Get("regexp") == "true"
 
-	opts := search.GrepOptions{
-		Limit: limit,
-		Person: person,
-		Since:  since,
-		Until:  until,
-	}
-	if len(channel) > 0 {
+	opts := search.GrepOptions{Limit: limit, Person: person, Since: since, Until: until}
+	if channel != "" {
 		opts.Channels = []string{channel}
 	}
 	if useRegexp {
@@ -202,4 +220,128 @@ func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 		"oldest":        oldest.String,
 		"newest":        newest.String,
 	})
+}
+
+// Conversation endpoints
+
+func (h *Handler) handleConversations(w http.ResponseWriter, r *http.Request) {
+	if h.convDB == nil {
+		jsonError(w, "conversations not configured", 500)
+		return
+	}
+	switch r.Method {
+	case "GET":
+		convs, err := db.ListConversations(h.convDB, "default")
+		if err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		if convs == nil {
+			convs = []db.Conversation{}
+		}
+		json.NewEncoder(w).Encode(convs)
+	case "POST":
+		id, err := db.CreateConversation(h.convDB, "default")
+		if err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"id": id})
+	default:
+		jsonError(w, "method not allowed", 405)
+	}
+}
+
+func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
+	if h.convDB == nil {
+		jsonError(w, "conversations not configured", 500)
+		return
+	}
+	// Extract conversation ID from path: /api/conversations/{id}
+	id := strings.TrimPrefix(r.URL.Path, "/api/conversations/")
+	if id == "" {
+		jsonError(w, "missing conversation id", 400)
+		return
+	}
+
+	// Handle /api/conversations/{id}/messages
+	if strings.HasSuffix(id, "/messages") {
+		id = strings.TrimSuffix(id, "/messages")
+		msgs, err := db.LoadConvMessages(h.convDB, id)
+		if err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		if msgs == nil {
+			msgs = []db.ConvMessage{}
+		}
+		json.NewEncoder(w).Encode(msgs)
+		return
+	}
+
+	switch r.Method {
+	case "DELETE":
+		if err := db.DeleteConversation(h.convDB, id); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+	case "PATCH":
+		var req struct {
+			Title string `json:"title"`
+		}
+		if json.NewDecoder(r.Body).Decode(&req) != nil || req.Title == "" {
+			jsonError(w, "missing title", 400)
+			return
+		}
+		if err := db.RenameConversation(h.convDB, id, req.Title); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]string{"status": "renamed"})
+	default:
+		jsonError(w, "method not allowed", 405)
+	}
+}
+
+// Slack live search
+
+func (h *Handler) handleSlackSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		jsonError(w, "POST required", 405)
+		return
+	}
+	var req struct {
+		Query     string `json:"query"`
+		Limit     int    `json:"limit"`
+		Token     string `json:"token"`
+		Cookie    string `json:"cookie"`
+		Workspace string `json:"workspace"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, "invalid request body", 400)
+		return
+	}
+	if req.Query == "" {
+		jsonError(w, "missing query", 400)
+		return
+	}
+	if req.Token == "" {
+		jsonError(w, "missing token — paste credentials from Slack", 400)
+		return
+	}
+	if req.Limit <= 0 {
+		req.Limit = 50
+	}
+
+	client := slackclient.NewClient(req.Token, req.Cookie, req.Workspace, "")
+	results, err := slackclient.LiveSearch(h.db, client, req.Query, req.Limit)
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	if results == nil {
+		results = []slackclient.SearchResult{}
+	}
+	json.NewEncoder(w).Encode(results)
 }

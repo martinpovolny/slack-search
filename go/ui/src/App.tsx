@@ -94,57 +94,111 @@ function App() {
   )
 }
 
+interface ConvItem { id: string; title: string }
+interface NLQResult { SQL: string; Answer: string; Result: SearchResult | null; Error: string }
+
 function NLQTab() {
   const [question, setQuestion] = useState('')
   const [loading, setLoading] = useState(false)
-  const [result, setResult] = useState<{ SQL: string; Answer: string; Result: SearchResult | null; Error: string } | null>(null)
+  const [conversations, setConversations] = useState<ConvItem[]>([])
+  const [activeConv, setActiveConv] = useState<string | null>(null)
+  const [messages, setMessages] = useState<{ role: string; content: string; sql?: string; result?: NLQResult }[]>([])
+
+  useEffect(() => {
+    fetch('/api/conversations').then(r => r.json()).then((c: ConvItem[]) => setConversations(c || [])).catch(() => {})
+  }, [])
+
+  const newConv = async () => {
+    const resp = await fetch('/api/conversations', { method: 'POST' })
+    const data = await resp.json()
+    setActiveConv(data.id)
+    setMessages([])
+    setConversations(prev => [{ id: data.id, title: 'New conversation' }, ...prev])
+  }
+
+  const loadConv = async (id: string) => {
+    setActiveConv(id)
+    const resp = await fetch(`/api/conversations/${id}/messages`)
+    const msgs = await resp.json()
+    setMessages((msgs || []).map((m: { role: string; content: string; sql?: string }) => ({
+      role: m.role, content: m.content, sql: m.sql
+    })))
+  }
+
+  const deleteConv = async (id: string) => {
+    await fetch(`/api/conversations/${id}`, { method: 'DELETE' })
+    setConversations(prev => prev.filter(c => c.id !== id))
+    if (activeConv === id) { setActiveConv(null); setMessages([]) }
+  }
 
   const ask = async () => {
     if (!question.trim()) return
+    if (!activeConv) await newConv()
+
+    const userMsg = question
+    setQuestion('')
+    setMessages(prev => [...prev, { role: 'user', content: userMsg }])
     setLoading(true)
-    setResult(null)
+
     try {
       const resp = await fetch('/api/nlq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question }),
+        body: JSON.stringify({ question: userMsg, conversation_id: activeConv }),
       })
-      const data = await resp.json()
-      setResult(data)
+      const data: NLQResult = await resp.json()
+      const content = data.Answer || (data.SQL ? `SQL: ${data.SQL}` : data.Error || '')
+      setMessages(prev => [...prev, { role: 'assistant', content, sql: data.SQL, result: data }])
+      // Refresh conversation list for title update
+      fetch('/api/conversations').then(r => r.json()).then((c: ConvItem[]) => setConversations(c || [])).catch(() => {})
     } catch (e) {
-      setResult({ SQL: '', Answer: '', Result: null, Error: String(e) })
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${e}` }])
     }
     setLoading(false)
   }
 
   return (
-    <div className="max-w-4xl space-y-4">
-      <h2 className="text-lg font-semibold text-gray-800">Ask in Natural Language</h2>
-      <div className="flex gap-2">
-        <input
-          value={question}
-          onChange={e => setQuestion(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && ask()}
-          placeholder="e.g. who sends the most messages?"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        <button onClick={ask} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
-          {loading ? 'Asking…' : 'Ask'}
-        </button>
+    <div className="flex gap-4 h-full">
+      {/* Conversation list */}
+      <div className="w-48 shrink-0 border-r pr-3 space-y-2">
+        <button onClick={newConv} className="w-full text-sm bg-gray-100 hover:bg-gray-200 rounded px-2 py-1">+ New</button>
+        {conversations.map(c => (
+          <div key={c.id} className={`flex items-center gap-1 text-xs rounded px-2 py-1 cursor-pointer ${activeConv === c.id ? 'bg-blue-100' : 'hover:bg-gray-50'}`}>
+            <span className="flex-1 truncate" onClick={() => loadConv(c.id)}>{c.title}</span>
+            <button onClick={() => deleteConv(c.id)} className="text-gray-400 hover:text-red-500">✕</button>
+          </div>
+        ))}
       </div>
-      {result && (
-        <div className="space-y-3">
-          {result.Error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded">{result.Error}</div>}
-          {result.Answer && <div className="bg-gray-50 p-4 rounded-lg text-sm whitespace-pre-wrap">{result.Answer}</div>}
-          {result.SQL && (
-            <details className="text-sm">
-              <summary className="cursor-pointer text-gray-500">Generated SQL</summary>
-              <pre className="bg-gray-100 p-3 rounded mt-1 overflow-x-auto text-xs">{result.SQL}</pre>
-            </details>
-          )}
-          {result.Result && <DataTable data={result.Result} />}
+
+      {/* Chat area */}
+      <div className="flex-1 flex flex-col max-w-3xl">
+        <div className="flex-1 overflow-y-auto space-y-3 pb-4">
+          {messages.map((m, i) => (
+            <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
+              <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
+                <div className="whitespace-pre-wrap">{m.content}</div>
+                {m.sql && (
+                  <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1">{m.sql}</pre></details>
+                )}
+              </div>
+              {m.result?.Result && <div className="mt-2"><DataTable data={m.result.Result} /></div>}
+            </div>
+          ))}
+          {loading && <div className="text-sm text-gray-400">Thinking…</div>}
         </div>
-      )}
+        <div className="flex gap-2 pt-2 border-t">
+          <input
+            value={question}
+            onChange={e => setQuestion(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && !loading && ask()}
+            placeholder="Ask about your Slack archive…"
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          <button onClick={ask} disabled={loading} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+            {loading ? '…' : 'Ask'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -260,11 +314,86 @@ function SQLTab() {
   )
 }
 
+interface SlackResult {
+  time: string; channel: string; channel_id: string; author: string; text: string; permalink: string; ts: string
+}
+
 function SearchTab() {
+  const [query, setQuery] = useState('')
+  const [token, setToken] = useState('')
+  const [cookie, setCookie] = useState('')
+  const [workspace, setWorkspace] = useState('')
+  const [results, setResults] = useState<SlackResult[]>([])
+  const [selected, setSelected] = useState<SlackResult | null>(null)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  const search = async () => {
+    if (!query.trim() || !token.trim()) return
+    setLoading(true); setError(''); setResults([]); setSelected(null)
+    try {
+      const resp = await fetch('/api/slack-search', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query, token, cookie, workspace, limit: 50 }),
+      })
+      const data = await resp.json()
+      if (data.error) { setError(data.error) } else { setResults(data || []) }
+    } catch (e) { setError(String(e)) }
+    setLoading(false)
+  }
+
   return (
     <div className="space-y-3 max-w-4xl">
       <h2 className="text-lg font-semibold text-gray-800">Slack Search</h2>
-      <p className="text-sm text-gray-500">Live search requires Slack credentials. Use the CLI: <code className="bg-gray-100 px-1 rounded">slack-search live-search --curl-file .curl "query"</code></p>
+      <details className="text-sm">
+        <summary className="cursor-pointer text-gray-500 font-medium">Credentials</summary>
+        <div className="mt-2 space-y-2 p-3 bg-gray-50 rounded-lg">
+          <input value={token} onChange={e => setToken(e.target.value)} placeholder="Token (xoxc-…)" className="w-full border rounded px-2 py-1 text-xs font-mono" />
+          <input value={cookie} onChange={e => setCookie(e.target.value)} placeholder="Cookie (xoxd-…)" className="w-full border rounded px-2 py-1 text-xs font-mono" />
+          <input value={workspace} onChange={e => setWorkspace(e.target.value)} placeholder="Workspace (e.g. company.enterprise.slack.com)" className="w-full border rounded px-2 py-1 text-xs" />
+        </div>
+      </details>
+      <div className="flex gap-2">
+        <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search Slack…" className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+        <button onClick={search} disabled={loading || !token} className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 disabled:opacity-50">
+          {loading ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+      {error && <div className="text-red-600 text-sm bg-red-50 p-3 rounded">{error}</div>}
+      {results.length > 0 && (
+        <>
+          <div className="text-xs text-gray-500">{results.length} result(s) — new messages cached locally</div>
+          <div className="overflow-x-auto border rounded-lg">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">Channel</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">Author</th>
+                  <th className="px-3 py-2 text-left font-medium text-gray-600">Message</th>
+                </tr>
+              </thead>
+              <tbody>
+                {results.map((r, i) => (
+                  <tr key={i} onClick={() => setSelected(r)} className={`border-t cursor-pointer hover:bg-blue-50 ${selected?.ts === r.ts ? 'bg-blue-100' : ''}`}>
+                    <td className="px-3 py-1.5 text-xs">#{r.channel}</td>
+                    <td className="px-3 py-1.5 text-xs font-medium">{r.author}</td>
+                    <td className="px-3 py-1.5 text-xs truncate max-w-md">{r.text}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      {selected && (
+        <div className="bg-gray-50 rounded-lg p-4 border space-y-2">
+          <div className="text-xs text-gray-500">#{selected.channel} · <span className="font-medium text-gray-700">{selected.author}</span>
+            {selected.permalink && <> · <a href={selected.permalink} target="_blank" className="text-blue-500 hover:underline">Open in Slack ↗</a></>}
+          </div>
+          <div className="text-sm whitespace-pre-wrap">{selected.text}</div>
+        </div>
+      )}
     </div>
   )
 }

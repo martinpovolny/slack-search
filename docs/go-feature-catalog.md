@@ -26,14 +26,14 @@ Feature tracking for the Go reimplementation of slack-search.
 | F14 | NLQ: RHT models.corp provider | done | done | .rht_models.json config |
 | F15 | Text formatting | done | done | Mention resolution, highlighting |
 | **Web UI** |
-| F16 | NLQ chat tab | done | partial | UI present, no conversation persistence yet |
+| F16 | NLQ chat tab | done | done | Chat with conversation list, persistence |
 | F17 | Browse messages tab | done | done | Filters, detail view |
 | F18 | SQL query tab | done | done | Raw SQL execution |
-| F19 | Slack Search tab | done | partial | Placeholder — needs credential flow in UI |
+| F19 | Slack Search tab | done | done | Credential input in UI, live results |
 | F20 | Sidebar | done | done | Channel list, stats |
-| F21 | Conversation persistence | done | - | conversations.db not yet implemented |
+| F21 | Conversation persistence | done | done | conversations.db with create/list/load/delete |
 | **Other** |
-| F22 | Eval framework | done | - | Lower priority |
+| F22 | Eval framework | done | done | JSON test cases, SQL checks, summary output |
 | F23 | Scheduled refresh (launchd) | done | done | Same plist works with Go binary |
 
 ## Implementation Order
@@ -48,13 +48,19 @@ Feature tracking for the Go reimplementation of slack-search.
 7. ~~F07: Live search~~
 8. ~~F15: Text formatting~~
 
-**Phase 3 — Web UI: MOSTLY COMPLETE**
+**Phase 3 — Web UI: COMPLETE**
 1. ~~F20: Sidebar scaffold~~
 2. ~~F18: SQL query tab~~
 3. ~~F17: Browse messages~~
-4. F16+F21: NLQ chat + conversations (partial — UI works, no persistence)
-5. F19: Slack Search (placeholder — needs credential flow)
+4. ~~F16+F21: NLQ chat + conversations~~
+5. ~~F19: Slack Search~~
 
-**Phase 4 — Polish:**
+**Phase 4 — Polish: COMPLETE**
 1. ~~F23: Launchd compatibility~~
-2. F22: Eval framework
+2. ~~F22: Eval framework~~
+
+## Backlog
+
+| Code | Feature | Notes |
+|------|---------|-------|
+| F24 | User name filter in sidebar/browse | Filter by login, full name; prototype in Python first, then port to Go |
