@@ -184,6 +184,42 @@ function ResizeDivider({ onResize }: { onResize: (delta: number) => void }) {
   )
 }
 
+function VResizeDivider({ onResize }: { onResize: (delta: number) => void }) {
+  const dragging = useRef(false)
+  const lastY = useRef(0)
+
+  const onMouseDown = useCallback((e: React.MouseEvent) => {
+    dragging.current = true
+    lastY.current = e.clientY
+    e.preventDefault()
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!dragging.current) return
+      const delta = e.clientY - lastY.current
+      lastY.current = e.clientY
+      onResize(delta)
+    }
+    const onMouseUp = () => {
+      dragging.current = false
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    document.body.style.cursor = 'row-resize'
+    document.body.style.userSelect = 'none'
+  }, [onResize])
+
+  return (
+    <div
+      onMouseDown={onMouseDown}
+      className="h-1 shrink-0 cursor-row-resize hover:bg-blue-300 active:bg-blue-400 bg-gray-200 transition-colors"
+    />
+  )
+}
+
 interface ConvItem { id: string; title: string }
 interface NLQResult { SQL: string; Answer: string; Result: SearchResult | null; Error: string }
 
@@ -314,8 +350,12 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
   )
 }
 
-function slackPermalink(workspace: string, channelID: string, ts: string): string {
-  return `https://${workspace}/archives/${channelID}/p${ts.replace('.', '')}`
+function slackPermalink(workspace: string, channelID: string, ts: string, threadTS?: string): string {
+  const base = `https://${workspace}/archives/${channelID}/p${ts.replace('.', '')}`
+  if (threadTS && threadTS !== ts) {
+    return base + `?thread_ts=${threadTS}&cid=${channelID}`
+  }
+  return base
 }
 
 function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channels: Channel[]; initialChannel?: string; workspace: string; jiraConfig?: AppConfig | null }) {
@@ -348,10 +388,12 @@ function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channe
     }
   }, [initialChannel])
 
+  const [topHeight, setTopHeight] = useState(60) // percentage
+
   return (
-    <div className="space-y-3">
-      <h2 className="text-lg font-semibold text-gray-800">Browse Messages</h2>
-      <div className="flex gap-2 flex-wrap items-end">
+    <div className="flex flex-col h-full">
+      {/* Filters */}
+      <div className="flex gap-2 flex-wrap items-end pb-2 shrink-0">
         <input value={text} onChange={e => setText(e.target.value)} onKeyDown={e => e.key === 'Enter' && search()} placeholder="Search text…" className="border border-gray-300 rounded px-3 py-1.5 text-sm w-48" />
         <select value={channel} onChange={e => setChannel(e.target.value)} className="border border-gray-300 rounded px-3 py-1.5 text-sm">
           <option value="">All channels</option>
@@ -361,14 +403,14 @@ function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channe
         <select value={limit} onChange={e => setLimit(e.target.value)} className="border border-gray-300 rounded px-3 py-1.5 text-sm">
           {['25', '50', '100', '200'].map(n => <option key={n} value={n}>{n} rows</option>)}
         </select>
-        <button onClick={search} className="bg-blue-500 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-600">Search</button>
+        <button onClick={() => search()} className="bg-blue-500 text-white px-4 py-1.5 rounded text-sm hover:bg-blue-600">Search</button>
+        <span className="text-xs text-gray-500">{results.length} result(s)</span>
       </div>
 
-      <div className="text-xs text-gray-500">{results.length} result(s)</div>
-
-      <div className="overflow-x-auto border rounded-lg">
+      {/* Table panel */}
+      <div className="overflow-auto border rounded-t-lg" style={{ height: `${topHeight}%` }}>
         <table className="w-full text-sm">
-          <thead className="bg-gray-50">
+          <thead className="bg-gray-50 sticky top-0">
             <tr>
               <th className="px-3 py-2 text-left font-medium text-gray-600">Time</th>
               <th className="px-3 py-2 text-left font-medium text-gray-600">Channel</th>
@@ -393,22 +435,35 @@ function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channe
         </table>
       </div>
 
-      {selected && (
-        <div className="bg-gray-50 rounded-lg p-4 border space-y-2">
-          <div className="text-xs text-gray-500">
-            {selected.Time} &middot; #{selected.Channel} &middot; <span className="font-medium text-gray-700">{selected.Author}</span>
-            {workspace && selected.ChannelID && (
-              <>
-                {' '}&middot;{' '}
-                <a href={slackPermalink(workspace, selected.ChannelID, selected.TS)} target="_blank" className="text-blue-500 hover:underline">Open in Slack ↗</a>
-                {' '}
-                <a href={`slack://open?url=${encodeURIComponent(slackPermalink(workspace, selected.ChannelID, selected.TS))}`} className="text-blue-500 hover:underline">App ↗</a>
-              </>
-            )}
+      {/* Resizable divider */}
+      <VResizeDivider onResize={delta => {
+        const container = document.querySelector('main > div:last-child')
+        if (!container) return
+        const pct = (delta / container.clientHeight) * 100
+        setTopHeight(h => Math.max(20, Math.min(85, h + pct)))
+      }} />
+
+      {/* Detail panel */}
+      <div className="overflow-auto border-x border-b rounded-b-lg bg-gray-50 p-4" style={{ height: `${100 - topHeight}%` }}>
+        {selected ? (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500">
+              {selected.Time} &middot; #{selected.Channel} &middot; <span className="font-medium text-gray-700">{selected.Author}</span>
+              {workspace && selected.ChannelID && (
+                <>
+                  {' '}&middot;{' '}
+                  <a href={slackPermalink(workspace, selected.ChannelID, selected.TS, selected.ThreadTS)} target="_blank" className="text-blue-500 hover:underline">Open in Slack ↗</a>
+                  {' '}
+                  <a href={`slack://open?url=${encodeURIComponent(slackPermalink(workspace, selected.ChannelID, selected.TS, selected.ThreadTS))}`} className="text-blue-500 hover:underline">App ↗</a>
+                </>
+              )}
+            </div>
+            <div className="text-sm"><MessageContent text={selected.Text} jiraConfig={jiraConfig} highlight={text} /></div>
           </div>
-          <div className="text-sm"><MessageContent text={selected.Text} jiraConfig={jiraConfig} /></div>
-        </div>
-      )}
+        ) : (
+          <div className="text-sm text-gray-400 flex items-center justify-center h-full">Click a message above to view details</div>
+        )}
+      </div>
     </div>
   )
 }
@@ -536,7 +591,19 @@ function linkifyJira(text: string, config: AppConfig | null): string {
   return text.replace(pattern, (m) => `[${m}](${config.jira_url}/${m})`)
 }
 
-function MessageContent({ text, jiraConfig }: { text: string; jiraConfig?: AppConfig | null }) {
+function HighlightedText({ text, term }: { text: string; term?: string }) {
+  if (!term || !text) return <>{text}</>
+  try {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    const re = new RegExp(`(${escaped})`, 'gi')
+    const parts = text.split(re)
+    return <>{parts.map((part, i) =>
+      re.test(part) ? <mark key={i} className="bg-yellow-200 px-0.5 rounded">{part}</mark> : part
+    )}</>
+  } catch { return <>{text}</> }
+}
+
+function MessageContent({ text, jiraConfig, highlight }: { text: string; jiraConfig?: AppConfig | null; highlight?: string }) {
   if (!text) return null
   const processed = linkifyJira(text, jiraConfig || null)
   return (
@@ -550,6 +617,14 @@ function MessageContent({ text, jiraConfig }: { text: string; jiraConfig?: AppCo
         th: ({ children }) => <th className="border border-gray-300 px-2 py-1 bg-gray-100 text-left font-medium">{children}</th>,
         td: ({ children }) => <td className="border border-gray-300 px-2 py-1">{children}</td>,
         a: ({ href, children }) => <a href={href} target="_blank" className="text-blue-500 hover:underline">{children}</a>,
+        p: ({ children }) => {
+          if (!highlight) return <p>{children}</p>
+          return <p>{typeof children === 'string' ? <HighlightedText text={children} term={highlight} /> : children}</p>
+        },
+        li: ({ children }) => {
+          if (!highlight) return <li>{children}</li>
+          return <li>{typeof children === 'string' ? <HighlightedText text={children} term={highlight} /> : children}</li>
+        },
       }}
     >{processed}</Markdown>
   )
