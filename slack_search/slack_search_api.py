@@ -53,6 +53,15 @@ def run_slack_search(
         if not (ts and channel_id):
             continue
 
+        # Resolve DM channel names — Slack returns user ID or channel ID as name
+        if channel_id.startswith("D") and (channel_name.startswith("U") or channel_name == channel_id):
+            if channel_name.startswith("U"):
+                row = conn.execute(
+                    "SELECT real_name FROM users WHERE id=?", (channel_name,)
+                ).fetchone()
+                if row and row["real_name"]:
+                    channel_name = f"DM: {row['real_name']}"
+
         upsert_channel(conn, channel_id, channel_name)
 
         if not message_exists(conn, ts, channel_id):

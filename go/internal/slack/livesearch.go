@@ -64,8 +64,18 @@ func LiveSearch(conn *sql.DB, client *Client, query string, limit int) ([]Search
 			break
 		}
 
-		// Cache in local DB
-		db.UpsertChannel(conn, m.Channel.ID, m.Channel.Name)
+		// Cache in local DB — resolve DM channel names
+		channelName := m.Channel.Name
+		if strings.HasPrefix(m.Channel.ID, "D") && (strings.HasPrefix(channelName, "U") || channelName == m.Channel.ID) {
+			if strings.HasPrefix(channelName, "U") {
+				var realName string
+				conn.QueryRow("SELECT real_name FROM users WHERE id=?", channelName).Scan(&realName)
+				if realName != "" {
+					channelName = "DM: " + realName
+				}
+			}
+		}
+		db.UpsertChannel(conn, m.Channel.ID, channelName)
 
 		tsFloat, _ := strconv.ParseFloat(m.TS, 64)
 		rawJSON, _ := json.Marshal(m)
