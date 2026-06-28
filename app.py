@@ -763,7 +763,7 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
             lambda r: _slack_permalink(workspace, r["_channel_id"], r["_ts"], r.get("_thread_ts")),
             axis=1,
         )
-        df["time"] = df["_slack"].apply(_slack_app_link) + "#" + df["time"]
+        df["time"] = df["_slack"] + "#" + df["time"]
 
     display_cols = [c for c in df.columns if not c.startswith("_")]
     col_cfg: dict = {
@@ -798,15 +798,11 @@ def render_browse(conn: sqlite3.Connection, channel_filter: str | None) -> None:
         channel_id = row.get("_channel_id", "")
         channel_html = f"#{row['channel']}"
         if workspace and channel_id:
-            ch_app = _slack_app_link(f"https://{workspace}/archives/{channel_id}")
-            channel_html = f'<a href="{ch_app}" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
+            ch_web = f"https://{workspace}/archives/{channel_id}"
+            channel_html = f'<a href="{ch_web}" target="_blank" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
         links_html = ""
         if web_url:
-            app_url = _slack_app_link(web_url)
-            links_html = (
-                f' &nbsp;<a href="{app_url}" style="font-size:12px;color:#9d4edd;text-decoration:none">🖥 app</a>'
-                f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">↗ browser</a>'
-            )
+            links_html = f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">Open in Slack ↗</a>'
         st.markdown(
             f"""<div style="border-left:4px solid #9d4edd;border-radius:0 6px 6px 0;
                             padding:14px 20px;margin-top:8px;
@@ -931,7 +927,7 @@ def render_slack_search(db_path: str) -> None:
     # Encode app deep-link into the time column as a URL fragment so LinkColumn can
     # show the time as display text while the cell opens the Slack desktop app.
     df["time"] = df.apply(
-        lambda r: (_slack_app_link(r["_slack"]) + "#" + r["time"]) if r["_slack"] else r["time"],
+        lambda r: (r["_slack"] + "#" + r["time"]) if r["_slack"] else r["time"],
         axis=1,
     )
 
@@ -967,15 +963,11 @@ def render_slack_search(db_path: str) -> None:
         channel_id = row.get("channel_id", "")
         channel_html = f"#{row['channel']}"
         if search_workspace and channel_id:
-            ch_app = _slack_app_link(f"https://{search_workspace}/archives/{channel_id}")
-            channel_html = f'<a href="{ch_app}" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
+            ch_web = f"https://{search_workspace}/archives/{channel_id}"
+            channel_html = f'<a href="{ch_web}" target="_blank" style="color:#9d4edd;text-decoration:none">#{row["channel"]}</a>'
         links_html = ""
         if web_url:
-            app_url = _slack_app_link(web_url)
-            links_html = (
-                f' &nbsp;<a href="{app_url}" style="font-size:12px;color:#9d4edd;text-decoration:none">🖥 app</a>'
-                f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">↗ browser</a>'
-            )
+            links_html = f' &nbsp;<a href="{web_url}" target="_blank" style="font-size:12px;color:#9d4edd;text-decoration:none">Open in Slack ↗</a>'
         st.markdown(
             f"""<div style="border-left:4px solid #9d4edd;border-radius:0 6px 6px 0;
                             padding:14px 20px;margin-top:8px;
