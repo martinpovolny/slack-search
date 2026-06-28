@@ -353,7 +353,7 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
 function slackPermalink(workspace: string, channelID: string, ts: string, threadTS?: string): string {
   const base = `https://${workspace}/archives/${channelID}/p${ts.replace('.', '')}`
   if (threadTS && threadTS !== ts) {
-    return base + `?thread_ts=${threadTS}&cid=${channelID}`
+    return base + `?thread_ts=${threadTS}&ctype=thread`
   }
   return base
 }
@@ -453,8 +453,6 @@ function BrowseTab({ channels, initialChannel, workspace, jiraConfig }: { channe
                 <>
                   {' '}&middot;{' '}
                   <a href={slackPermalink(workspace, selected.ChannelID, selected.TS, selected.ThreadTS)} target="_blank" className="text-blue-500 hover:underline">Open in Slack ↗</a>
-                  {' '}
-                  <a href={`slack://open?url=${encodeURIComponent(slackPermalink(workspace, selected.ChannelID, selected.TS, selected.ThreadTS))}`} className="text-blue-500 hover:underline">App ↗</a>
                 </>
               )}
             </div>
