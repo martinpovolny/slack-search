@@ -13,6 +13,7 @@ import (
 
 	"os/exec"
 	"regexp"
+	"time"
 
 	"github.com/martinpovolny/slack-search/internal/config"
 	"github.com/martinpovolny/slack-search/internal/timeparse"
@@ -468,8 +469,14 @@ func cmdEval(dbPath string) {
 func cmdServe(dbPath string) {
 	serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
 	var addr, curlFile string
+	var noRefresh bool
+	var refreshInterval int
+	var lookback int
 	serveFlags.StringVar(&addr, "addr", ":8088", "Listen address")
 	serveFlags.StringVar(&curlFile, "curl-file", "", "Path to .curl file for Slack live search credentials")
+	serveFlags.BoolVar(&noRefresh, "no-refresh", false, "Disable background refresh")
+	serveFlags.IntVar(&refreshInterval, "refresh-interval", 30, "Background refresh interval in minutes")
+	serveFlags.IntVar(&lookback, "lookback", 7, "Thread catchup lookback in days")
 	serveFlags.Parse(os.Args[2:])
 
 	conn := openDB(dbPath)
@@ -525,6 +532,42 @@ func cmdServe(dbPath string) {
 	uiFS, _ := iofs.Sub(web.StaticFiles, "dist")
 	fileServer := http.FileServer(http.FS(uiFS))
 	mux.Handle("/", spaHandler{fs: fileServer, fsys: uiFS})
+
+	// Background refresh goroutine
+	if !noRefresh && slackClient != nil {
+		interval := time.Duration(refreshInterval) * time.Minute
+		log.Printf("Background refresh enabled: every %v, lookback %d days", interval, lookback)
+		go func() {
+			// Initial delay — let the server start first
+			time.Sleep(10 * time.Second)
+			for {
+				func() {
+					defer func() {
+						if r := recover(); r != nil {
+							log.Printf("Refresh panic (recovered): %v", r)
+						}
+					}()
+					log.Println("Background refresh starting…")
+					_, err := download.Refresh(conn, slackClient, download.Options{FetchThreads: true})
+					if err != nil {
+						log.Printf("Refresh error: %v", err)
+					}
+					if lookback > 0 {
+						count, err := download.CatchupThreads(conn, slackClient, lookback)
+						if err != nil {
+							log.Printf("Thread catchup error: %v", err)
+						} else if count > 0 {
+							log.Printf("Thread catchup: %d new reply(ies)", count)
+						}
+					}
+					log.Println("Background refresh done.")
+				}()
+				time.Sleep(interval)
+			}
+		}()
+	} else if !noRefresh && slackClient == nil {
+		log.Println("Background refresh disabled: no Slack credentials loaded")
+	}
 
 	log.Printf("slack-search %s listening on %s", commit, addr)
 	if err := http.ListenAndServe(addr, mux); err != nil {
