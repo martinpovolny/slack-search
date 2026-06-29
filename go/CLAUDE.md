@@ -49,6 +49,10 @@ Schema is defined in `internal/db/database.go` — must stay in sync with `../sl
 - OpenAI-compatible API via the URL template in the config file
 - No other providers (no LiteMaaS, LM Studio, OpenCode)
 
+## Thread Catchup
+
+The `refresh --lookback N` flag re-checks threads from the last N days for new replies. On each hourly run, the launchd job uses `--lookback 7` to catch thread activity that happened after the initial download. For a one-time gap fill, use `--lookback 30` or more.
+
 ## Key Design Rules
 
 - All config from env vars or `~/.slack-search/` — no hardcoded paths

@@ -36,6 +36,16 @@ uv run slack-search refresh --curl "$(cat .curl)" --no-files
 
 This fetches new messages for every *subscribed* channel (i.e. channels you have explicitly `download`-ed). Channels that appear in the database only because they were touched by `live-search` are excluded. Accepts the same credential options as `download`.
 
+Use `--lookback N` to also re-check threads from the last N days for new replies that arrived after the initial download:
+
+```bash
+# Refresh + catch up thread replies from last 7 days
+uv run slack-search refresh --curl "$(cat .curl)" --no-files --lookback 7
+
+# Fill in gaps from the last 30 days (one-time)
+uv run slack-search refresh --curl "$(cat .curl)" --no-files --lookback 30
+```
+
 ### Automatic hourly refresh (macOS launchd)
 
 A launchd plist is included in the repo to run `refresh` every hour in the background. Set it up with:
@@ -64,7 +74,7 @@ launchctl bootstrap gui/501 ~/Library/LaunchAgents/com.user.slack-refresh.plist
 tail -f /tmp/slack-refresh.log
 ```
 
-The job runs as your user, fires after sleep/wake (catching up missed runs), and auto-starts on login. If your `.curl` credentials expire, the refresh exits with code 2 and logs a clear message — just re-copy a fresh curl from Chrome DevTools.
+The job uses the Go binary with `--lookback 7` to also catch up thread replies from the last week on every hourly run. It runs as your user, fires after sleep/wake, and auto-starts on login. If your `.curl` credentials expire, the refresh exits with code 2 and logs a clear message — just re-copy a fresh curl from Chrome DevTools.
 
 **Credential lifetime:** The `xoxc-` token and session cookies extracted from Chrome typically remain valid for weeks to months. They're invalidated by logging out of Slack or changing your password, not by a timer. No token refresh logic is needed.
 

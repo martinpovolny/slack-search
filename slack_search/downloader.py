@@ -346,3 +346,87 @@ def download(
         conn.commit()
 
     return new_count
+
+
+def catchup_threads(
+    conn: sqlite3.Connection,
+    client: SlackClient,
+    lookback_days: int = 7,
+) -> int:
+    """Re-fetch threads that grew since the last download.
+
+    Scans messages within the lookback window that have a reply_count in the DB
+    and re-fetches their replies via conversations.replies. This catches thread
+    activity that happened after the initial download — the normal refresh only
+    sees new top-level messages.
+    """
+    import time as _time
+    cutoff = _time.time() - (lookback_days * 86400)
+
+    # Find threads within the lookback window that have replies
+    rows = conn.execute(
+        """
+        SELECT m.ts, m.channel_id, m.reply_count, c.name
+        FROM messages m
+        JOIN channels c ON m.channel_id = c.id
+        WHERE c.subscribed = 1
+          AND m.timestamp >= ?
+          AND m.reply_count > 0
+          AND (m.thread_ts IS NULL OR m.thread_ts = m.ts)
+        ORDER BY m.timestamp DESC
+        """,
+        (cutoff,),
+    ).fetchall()
+
+    if not rows:
+        console.print("[dim]No threads to check in lookback window.[/]")
+        return 0
+
+    console.print(f"[cyan]Checking {len(rows)} thread(s) in last {lookback_days} day(s)…[/]")
+    new_count = 0
+
+    for row in rows:
+        thread_ts, channel_id, stored_rc, channel_name = (
+            row["ts"], row["channel_id"], row["reply_count"], row["name"],
+        )
+
+        # Count how many replies we actually have stored
+        actual = conn.execute(
+            "SELECT count(*) FROM messages WHERE thread_ts=? AND channel_id=? AND ts!=?",
+            (thread_ts, channel_id, thread_ts),
+        ).fetchone()[0]
+
+        if actual >= stored_rc:
+            continue
+
+        console.print(f"  [dim]#{channel_name} thread {thread_ts}: {actual}/{stored_rc} replies, fetching…[/]")
+        for reply in _iter_replies(client, channel_id, thread_ts):
+            ts = reply.get("ts", "")
+            if not ts or message_exists(conn, ts, channel_id):
+                continue
+            user_id = reply.get("user")
+            if user_id:
+                try:
+                    data = client.users_info(user=user_id)
+                    upsert_user(conn, data["user"])
+                except Exception:
+                    pass
+            insert_message(conn, reply, channel_id)
+            new_count += 1
+
+        # Update the parent's reply_count to match API
+        try:
+            api_data = client.conversations_replies(channel=channel_id, ts=thread_ts, limit=1)
+            parent = api_data.get("messages", [{}])[0]
+            api_rc = parent.get("reply_count", stored_rc)
+            conn.execute(
+                "UPDATE messages SET reply_count=? WHERE ts=? AND channel_id=?",
+                (api_rc, thread_ts, channel_id),
+            )
+        except Exception:
+            pass
+
+        conn.commit()
+
+    console.print(f"[green]Thread catchup done.[/] {new_count} new reply(ies) found.")
+    return new_count

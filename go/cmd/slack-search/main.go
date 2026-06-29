@@ -190,7 +190,9 @@ func cmdDownload(dbPath string) {
 func cmdRefresh(dbPath string) {
 	fs := flag.NewFlagSet("refresh", flag.ExitOnError)
 	var noThreads bool
+	var lookback int
 	fs.BoolVar(&noThreads, "no-threads", false, "Skip fetching thread replies")
+	fs.IntVar(&lookback, "lookback", 0, "Re-check threads from the last N days for new replies (0=skip)")
 
 	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
 
@@ -208,6 +210,19 @@ func cmdRefresh(dbPath string) {
 			os.Exit(2)
 		}
 		log.Fatal(err)
+	}
+
+	if lookback > 0 && !noThreads {
+		catchupCount, err := download.CatchupThreads(conn, client, lookback)
+		if err != nil {
+			if slackclient.IsAuthError(err) {
+				fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
+				os.Exit(2)
+			}
+			log.Printf("Thread catchup error: %v", err)
+		} else if catchupCount > 0 {
+			fmt.Printf("Thread catchup: %d new reply(ies) from last %d day(s).\n", catchupCount, lookback)
+		}
 	}
 }
 

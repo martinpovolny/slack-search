@@ -10,7 +10,7 @@ from rich.console import Console
 load_dotenv()
 
 from .database import open_db
-from .downloader import download, _parse_since
+from .downloader import download, catchup_threads, _parse_since
 from .search import run_sql, show_schema
 from .ai_query import ask, load_rht_config
 from .eval import run_eval, save_results, print_summary, TESTS_DIR
@@ -197,6 +197,8 @@ def download_cmd(
 @click.option("--files-dir", default=str(DEFAULT_FILES_DIR), show_default=True, help="Directory for file attachments")
 @click.option("--no-files", is_flag=True, default=False, help="Skip downloading file attachments")
 @click.option("--no-threads", is_flag=True, default=False, help="Skip fetching thread replies")
+@click.option("--lookback", default=0, type=int, metavar="DAYS",
+              help="After refresh, re-check threads from the last N days for new replies (0=skip)")
 @click.pass_context
 def refresh(
     ctx: click.Context,
@@ -207,11 +209,14 @@ def refresh(
     files_dir: str,
     no_files: bool,
     no_threads: bool,
+    lookback: int,
 ) -> None:
     """Refresh all known channels: fetch new messages since the last download.
 
     Reads the list of channels from the database and runs an incremental
     download for each one, resuming from where the last run left off.
+    When --lookback is set, also re-checks threads from the last N days
+    for new replies that arrived after the initial download.
     """
     raw_cookies: Optional[str] = None
     if curl_command:
@@ -264,6 +269,12 @@ def refresh(
             console.print(f"  [red]✗ Error:[/] {e}")
 
     console.print(f"\n[green]Done.[/] {total_new} new message(s) across {len(channels)} subscribed channel(s).")
+
+    if lookback > 0 and not no_threads:
+        client = SlackClient(token=token, cookie=cookie, workspace=workspace, raw_cookies=raw_cookies)
+        catchup_count = catchup_threads(conn, client, lookback_days=lookback)
+        if catchup_count:
+            console.print(f"[green]Thread catchup:[/] {catchup_count} new reply(ies) from last {lookback} day(s).")
 
 
 @cli.command()

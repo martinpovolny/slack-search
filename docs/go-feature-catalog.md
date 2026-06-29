@@ -67,7 +67,7 @@ Feature tracking for the Go reimplementation of slack-search.
 | ~~G02~~ | ~~CLI~~ | ~~`-P` pager flag~~ | ~~done~~ |
 | ~~G03~~ | ~~CLI~~ | ~~SQLite REGEXP function~~ | ~~done~~ |
 | G04 | CLI | No `live-search` subcommand (only via web UI API) | low |
-| G05 | CLI | No `--check-missing` gap filling in download | low |
+| ~~G05~~ | ~~CLI~~ | ~~Thread gap filling via `--lookback`~~ | ~~done~~ |
 | ~~G06~~ | ~~Web UI~~ | ~~Browse: Slack deep-links~~ | ~~done~~ |
 | G07 | Web UI | Browse: no keyword highlighting in message detail view | medium |
 | G08 | Web UI | NLQ: no streaming response display | medium |

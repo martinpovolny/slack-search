@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/martinpovolny/slack-search/internal/db"
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
@@ -315,6 +316,97 @@ func ResolveChannel(client *slackclient.Client, channel string, conn *sql.DB, hi
 	}
 
 	return "", "", fmt.Errorf("channel '%s' not found — use the channel ID directly (e.g. C04476G1F7H)", channel)
+}
+
+// CatchupThreads re-checks threads within the lookback window for new replies.
+func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) (int, error) {
+	cutoff := float64(time.Now().Unix()) - float64(lookbackDays*86400)
+
+	rows, err := conn.Query(`
+		SELECT m.ts, m.channel_id, m.reply_count, c.name
+		FROM messages m
+		JOIN channels c ON m.channel_id = c.id
+		WHERE c.subscribed = 1
+		  AND m.timestamp >= ?
+		  AND m.reply_count > 0
+		  AND (m.thread_ts IS NULL OR m.thread_ts = m.ts)
+		ORDER BY m.timestamp DESC
+	`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+
+	type threadInfo struct {
+		ts, channelID, channelName string
+		storedRC                   int
+	}
+	var threads []threadInfo
+	for rows.Next() {
+		var t threadInfo
+		if err := rows.Scan(&t.ts, &t.channelID, &t.storedRC, &t.channelName); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		threads = append(threads, t)
+	}
+	rows.Close()
+
+	if len(threads) == 0 {
+		return 0, nil
+	}
+
+	fmt.Printf("Checking %d thread(s) in last %d day(s)…\n", len(threads), lookbackDays)
+	newCount := 0
+
+	for _, t := range threads {
+		var actual int
+		conn.QueryRow(
+			"SELECT count(*) FROM messages WHERE thread_ts=? AND channel_id=? AND ts!=?",
+			t.ts, t.channelID, t.ts,
+		).Scan(&actual)
+
+		if actual >= t.storedRC {
+			continue
+		}
+
+		fmt.Printf("  #%s thread %s: %d/%d replies, fetching…\n", t.channelName, t.ts, actual, t.storedRC)
+
+		storeReply := func(msg map[string]interface{}) (bool, bool) {
+			ts, _ := msg["ts"].(string)
+			if ts == "" {
+				return false, false
+			}
+			exists, _ := db.MessageExists(conn, ts, t.channelID)
+			if exists {
+				return false, false
+			}
+			userID, _ := msg["user"].(string)
+			username, _ := msg["username"].(string)
+			text, _ := msg["text"].(string)
+			threadTS, _ := msg["thread_ts"].(string)
+			replyCount := 0
+			if rc, ok := msg["reply_count"].(float64); ok {
+				replyCount = int(rc)
+			}
+			tsFloat, _ := strconv.ParseFloat(ts, 64)
+			rawJSON, _ := json.Marshal(msg)
+
+			inserted, _ := db.InsertMessage(conn, db.Message{
+				TS: ts, ChannelID: t.channelID, UserID: userID, Username: username,
+				Text: text, Timestamp: tsFloat, ThreadTS: threadTS,
+				ReplyCount: replyCount, RawJSON: rawJSON,
+			})
+			if inserted {
+				newCount++
+			}
+			return inserted, false
+		}
+
+		fetchReplies(conn, client, t.channelID, t.ts, storeReply)
+	}
+
+	fmt.Printf("Thread catchup done. %d new reply(ies) found.\n", newCount)
+	return newCount, nil
 }
 
 // Refresh updates all subscribed channels incrementally.
