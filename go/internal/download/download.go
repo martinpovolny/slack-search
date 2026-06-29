@@ -57,15 +57,30 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		}
 	}
 
-	storeMessage := func(msg map[string]interface{}) bool {
+	// storeMessage returns (isNew, hasNewReplies)
+	storeMessage := func(msg map[string]interface{}) (bool, bool) {
 		ts, _ := msg["ts"].(string)
 		if ts == "" {
-			return false
+			return false, false
+		}
+
+		apiReplyCount := 0
+		if rc, ok := msg["reply_count"].(float64); ok {
+			apiReplyCount = int(rc)
 		}
 
 		exists, _ := db.MessageExists(conn, ts, channelID)
 		if exists {
-			return false
+			// Check if thread grew since last download
+			if apiReplyCount > 0 {
+				var storedRC int
+				conn.QueryRow("SELECT reply_count FROM messages WHERE ts=? AND channel_id=?", ts, channelID).Scan(&storedRC)
+				if apiReplyCount > storedRC {
+					conn.Exec("UPDATE messages SET reply_count=? WHERE ts=? AND channel_id=?", apiReplyCount, ts, channelID)
+					return false, true
+				}
+			}
+			return false, false
 		}
 
 		userID, _ := msg["user"].(string)
@@ -94,10 +109,10 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			RawJSON:    rawJSON,
 		})
 		if err != nil || !inserted {
-			return false
+			return false, false
 		}
 		newCount++
-		return true
+		return true, false
 	}
 
 	// Determine oldest argument for pagination
@@ -164,10 +179,10 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			}
 			lastTS = ts
 
-			isNew := storeMessage(msg)
+			isNew, hasNewReplies := storeMessage(msg)
 
 			if opts.FetchThreads {
-				if rc, ok := msg["reply_count"].(float64); ok && rc > 0 && isNew {
+				if rc, ok := msg["reply_count"].(float64); ok && rc > 0 && (isNew || hasNewReplies) {
 					threadTS, _ := msg["thread_ts"].(string)
 					if threadTS == "" {
 						threadTS = ts
@@ -200,7 +215,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 	return newCount, nil
 }
 
-func fetchReplies(conn *sql.DB, client *slackclient.Client, channelID, threadTS string, store func(map[string]interface{}) bool) {
+func fetchReplies(conn *sql.DB, client *slackclient.Client, channelID, threadTS string, store func(map[string]interface{}) (bool, bool)) {
 	cursor := ""
 	firstPage := true
 	for {

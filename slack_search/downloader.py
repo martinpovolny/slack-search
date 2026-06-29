@@ -218,11 +218,25 @@ def download(
         except Exception:
             pass
 
-    def store_message(msg: dict) -> bool:
+    def store_message(msg: dict) -> tuple[bool, bool]:
+        """Store a message. Returns (is_new, has_new_replies)."""
         nonlocal new_count
         ts = msg["ts"]
+        api_rc = msg.get("reply_count", 0)
         if message_exists(conn, ts, channel_id):
-            return False
+            if api_rc > 0:
+                row = conn.execute(
+                    "SELECT reply_count FROM messages WHERE ts=? AND channel_id=?",
+                    (ts, channel_id),
+                ).fetchone()
+                stored_rc = row["reply_count"] if row else 0
+                if api_rc > stored_rc:
+                    conn.execute(
+                        "UPDATE messages SET reply_count=? WHERE ts=? AND channel_id=?",
+                        (api_rc, ts, channel_id),
+                    )
+                    return False, True
+            return False, False
         cache_user(msg.get("user"))
         insert_message(conn, msg, channel_id)
         new_count += 1
@@ -235,7 +249,7 @@ def download(
                     dest = _download_file(url, client.session, files_dir / channel_name, name)
                     local_path = str(dest) if dest else None
             insert_file(conn, f, ts, channel_id, local_path)
-        return True
+        return True, False
 
     def process_batch(msgs: Iterator[dict], track_bounds: bool = True) -> None:
         first_ts = last_ts = None
@@ -252,8 +266,8 @@ def download(
                 first_ts = ts
             last_ts = ts
 
-            is_new = store_message(msg)
-            if fetch_threads and msg.get("reply_count", 0) > 0 and (is_new or check_missing):
+            is_new, has_new_replies = store_message(msg)
+            if fetch_threads and msg.get("reply_count", 0) > 0 and (is_new or has_new_replies or check_missing):
                 threads_to_fetch.append(msg.get("thread_ts") or ts)
 
             conn.commit()
