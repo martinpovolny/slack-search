@@ -4,9 +4,9 @@ This document tells a Claude instance how to answer questions about a Slack arch
 
 ## Setup
 
-The message database lives at `~/.slack-search/messages.db` by default.  The path can be overridden with `--db <path>` on every CLI command.
+The message database lives at `~/.slack-search/messages.db`. The Go binary is at `~/bin/slack-search` (symlink to `~/Projects/slack-search/go/bin/slack-search`).
 
-All commands must be run from the `slack-search` project directory with `uv run slack-search …`.
+All CLI commands use `slack-search` directly (Go binary, no `uv run` needed).
 
 ---
 
@@ -17,35 +17,35 @@ All commands must be run from the `slack-search` project directory with `uv run 
 Use this when the question is "find messages that contain X" or "show me what was said about Y".
 
 ```
-uv run slack-search grep [OPTIONS]
+slack-search grep [OPTIONS]
 
-  -F, --string TEXT      Literal string (case-insensitive)
-  -E, --regexp PATTERN   Regular expression (case-insensitive)
-  -c, --channel CHANNEL  Limit to channel name or ID (repeat for multiple)
-  --since DATE           After this date  (e.g. '2024-01-01', '3 weeks ago')
-  --until DATE           Before this date
-  -p, --person NAME      Sender partial name match
-  -n, --limit N          Max results (default 200)
-  -P, --pager            Page output with colours preserved
+  -F TEXT            Literal string (case-insensitive)
+  -E PATTERN         Regular expression (case-insensitive)
+  -c CHANNEL         Limit to channel name or ID (repeat for multiple)
+  --since DATE       After this date  (e.g. '2024-01-01', '3 weeks ago', 'yesterday')
+  --until DATE       Before this date
+  -p NAME            Sender partial name match
+  -n N               Max results (default 200)
+  -P                 Page output with colours preserved
 ```
 
 Examples:
 
 ```bash
 # Who mentioned "out of memory" in any channel?
-uv run slack-search grep -F "out of memory"
+slack-search grep -F "out of memory"
 
 # Errors or warnings in cost channels last two weeks
-uv run slack-search grep -E "error|warning" \
-  --channel cost-mgmt-dev --channel forum-cost-mgmt \
+slack-search grep -E "error|warning" \
+  -c cost-mgmt-dev -c forum-cost-mgmt \
   --since "2 weeks ago"
 
 # What did Martin say about the budget in Q1 2024?
-uv run slack-search grep -F "budget" --person Martin \
+slack-search grep -F "budget" -p Martin \
   --since 2024-01-01 --until 2024-04-01
 
 # All messages from David in cost-team-chat
-uv run slack-search grep -E ".*" --channel cost-team-chat --person David
+slack-search grep -E ".*" -c cost-team-chat -p David
 ```
 
 ### 2. `search` — raw SQL query
@@ -53,24 +53,24 @@ uv run slack-search grep -E ".*" --channel cost-team-chat --person David
 Use this for aggregations, counts, joins, or anything grep cannot express.
 
 ```bash
-uv run slack-search search "SELECT …"
+slack-search search "SELECT …"
 ```
 
 Examples:
 
 ```bash
 # Top senders in the last 30 days
-uv run slack-search search "
+slack-search search "
   SELECT u.real_name, count(*) AS msgs
   FROM messages m JOIN users u ON m.user_id = u.id
   WHERE m.timestamp > unixepoch('now', '-30 days')
   GROUP BY u.id ORDER BY msgs DESC LIMIT 10"
 
 # Thread activity — most-replied messages
-uv run slack-search search "
+slack-search search "
   SELECT datetime(timestamp,'unixepoch') AS time, username, reply_count, text
   FROM messages
-  WHERE thread_ts IS NULL AND reply_count > 0
+  WHERE reply_count > 0
   ORDER BY reply_count DESC LIMIT 20"
 ```
 
@@ -82,19 +82,10 @@ For multi-step analysis or when you need to iterate over results programmaticall
 sqlite3 ~/.slack-search/messages.db "SELECT …"
 ```
 
-Or open the DB in Python:
-
-```python
-import sqlite3, os
-conn = sqlite3.connect(os.path.expanduser("~/.slack-search/messages.db"))
-conn.row_factory = sqlite3.Row
-rows = conn.execute("SELECT …").fetchall()
-```
-
 Always open read-only when you only need to query:
 
-```python
-conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+```bash
+sqlite3 "file:$HOME/.slack-search/messages.db?mode=ro" "SELECT …"
 ```
 
 ---
@@ -111,7 +102,7 @@ messages(ts TEXT, channel_id TEXT, user_id TEXT, username TEXT, text TEXT,
   - timestamp: Unix epoch float (same value as ts, for range comparisons)
   - text: message body
 
-channels(id TEXT, name TEXT)
+channels(id TEXT, name TEXT, subscribed INTEGER)
 
 users(id TEXT, name TEXT, real_name TEXT, display_name TEXT)
 
@@ -132,8 +123,9 @@ datetime(timestamp, 'unixepoch') converts timestamp to a readable string.
 ```sql
 -- Channels in the archive
 CREATE TABLE channels (
-    id   TEXT PRIMARY KEY,   -- Slack channel ID, e.g. C04476G1F7H
-    name TEXT NOT NULL       -- channel name without #, e.g. cost-mgmt-dev
+    id         TEXT PRIMARY KEY,   -- Slack channel ID, e.g. C04476G1F7H
+    name       TEXT NOT NULL,      -- channel name without #, e.g. cost-mgmt-dev
+    subscribed INTEGER DEFAULT 0   -- 1 = explicitly downloaded, 0 = from live-search
 );
 
 -- Slack workspace members
@@ -152,7 +144,7 @@ CREATE TABLE messages (
     username    TEXT,               -- display name at post time (denormalised)
     text        TEXT,               -- message body (may contain <@UXXXX> mentions)
     timestamp   REAL NOT NULL,      -- same value as ts cast to float, for range queries
-    thread_ts   TEXT,               -- parent ts; non-NULL means this is a reply
+    thread_ts   TEXT,               -- parent ts = ts for thread parent, non-NULL for replies
     reply_count INTEGER DEFAULT 0,
     raw_json    TEXT,               -- full Slack payload
     PRIMARY KEY (ts, channel_id),
@@ -224,6 +216,23 @@ WHERE date(timestamp, 'unixepoch') =
       date('now', '-' || ((cast(strftime('%w','now') as integer) + 2) % 7) || ' days')
 ```
 
+**Thread queries** — thread parent messages have `thread_ts = ts` (not NULL):
+
+```sql
+-- All replies in a thread
+SELECT datetime(timestamp,'unixepoch') AS time,
+       COALESCE(u.real_name, m.username) AS author,
+       m.text
+FROM messages m LEFT JOIN users u ON m.user_id = u.id
+WHERE m.thread_ts = '1709300000.123456'
+ORDER BY m.timestamp
+
+-- Top-level messages with most replies
+SELECT * FROM messages
+WHERE reply_count > 0 AND (thread_ts IS NULL OR thread_ts = ts)
+ORDER BY reply_count DESC LIMIT 20
+```
+
 ---
 
 ## Recommended workflow for answering questions
@@ -238,11 +247,11 @@ WHERE date(timestamp, 'unixepoch') =
 
 ```bash
 # Step 1 – get a sample of messages
-uv run slack-search grep -E "cost|budget|spend|cloud" \
-  --channel cost-mgmt-dev --since "last week" -n 100
+slack-search grep -E "cost|budget|spend|cloud" \
+  -c cost-mgmt-dev --since "last week" -n 100
 
 # Step 2 – check who was most active on the topic
-uv run slack-search search "
+slack-search search "
   SELECT u.real_name, count(*) AS msgs
   FROM messages m JOIN users u ON m.user_id = u.id
   WHERE m.timestamp > unixepoch('now', '-7 days')
@@ -254,10 +263,10 @@ uv run slack-search search "
 
 ```bash
 # Find the root message
-uv run slack-search grep -F "incident X" --since "2024-03-01" -n 10
+slack-search grep -F "incident X" --since "2024-03-01" -n 10
 
 # Fetch all replies in that thread (thread_ts = the root ts value)
-uv run slack-search search "
+slack-search search "
   SELECT datetime(timestamp,'unixepoch') AS time,
          COALESCE(u.real_name, m.username) AS author,
          m.text
@@ -273,5 +282,5 @@ uv run slack-search search "
 Run the following to see what channels are available:
 
 ```bash
-uv run slack-search search "SELECT name, id FROM channels ORDER BY name"
+slack-search search "SELECT name, id FROM channels WHERE subscribed=1 ORDER BY name"
 ```
