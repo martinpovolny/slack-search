@@ -267,8 +267,14 @@ def download(
             last_ts = ts
 
             is_new, has_new_replies = store_message(msg)
-            if fetch_threads and msg.get("reply_count", 0) > 0 and (is_new or has_new_replies or check_missing):
-                threads_to_fetch.append(msg.get("thread_ts") or ts)
+            if fetch_threads:
+                thread_ts = msg.get("thread_ts")
+                rc = msg.get("reply_count", 0)
+                if rc > 0 and (is_new or has_new_replies or check_missing):
+                    threads_to_fetch.append(thread_ts or ts)
+                elif is_new and thread_ts and thread_ts != ts:
+                    # New reply to an existing thread — fetch the full thread
+                    threads_to_fetch.append(thread_ts)
 
             conn.commit()
 

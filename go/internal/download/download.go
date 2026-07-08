@@ -183,11 +183,16 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			isNew, hasNewReplies := storeMessage(msg)
 
 			if opts.FetchThreads {
-				if rc, ok := msg["reply_count"].(float64); ok && rc > 0 && (isNew || hasNewReplies) {
-					threadTS, _ := msg["thread_ts"].(string)
+				threadTS, _ := msg["thread_ts"].(string)
+				rc, _ := msg["reply_count"].(float64)
+
+				if rc > 0 && (isNew || hasNewReplies) {
 					if threadTS == "" {
 						threadTS = ts
 					}
+					threadsToFetch = append(threadsToFetch, threadTS)
+				} else if isNew && threadTS != "" && threadTS != ts {
+					// New reply to an existing thread — fetch the full thread
 					threadsToFetch = append(threadsToFetch, threadTS)
 				}
 			}
