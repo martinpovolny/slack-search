@@ -7,6 +7,7 @@ import (
 )
 
 type Config struct {
+	DefaultModel string   `json:"default_model"`
 	JiraURL      string   `json:"jira_url"`
 	JiraProjects []string `json:"jira_projects"`
 }

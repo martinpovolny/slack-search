@@ -143,10 +143,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 	}
 	modelName := req.Model
 	if modelName == "" {
-		for k := range config.Models {
-			modelName = k
-			break
-		}
+		modelName = config.DefaultModelName()
 	}
 	baseURL, apiKey, apiModelID, err := config.Endpoint(modelName)
 	if err != nil {

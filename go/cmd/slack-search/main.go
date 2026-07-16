@@ -271,11 +271,7 @@ func cmdNLQ(dbPath string) {
 	}
 
 	if modelName == "" {
-		// Use first available model
-		for k := range config.Models {
-			modelName = k
-			break
-		}
+		modelName = config.DefaultModelName()
 	}
 
 	baseURL, apiKey, apiModelID, err := config.Endpoint(modelName)
@@ -441,10 +437,7 @@ func cmdEval(dbPath string) {
 		log.Fatalf("Cannot load LLM config: %v", err)
 	}
 	if modelName == "" {
-		for k := range config.Models {
-			modelName = k
-			break
-		}
+		modelName = config.DefaultModelName()
 	}
 	baseURL, apiKey, apiModelID, err := config.Endpoint(modelName)
 	if err != nil {

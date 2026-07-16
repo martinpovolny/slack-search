@@ -6,12 +6,28 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/martinpovolny/slack-search/internal/config"
 )
 
 // RHTConfig holds the RHT models.corp configuration.
 type RHTConfig struct {
-	URLTemplate string
-	Models      map[string]RHTModel
+	URLTemplate  string
+	Models       map[string]RHTModel
+	DefaultModel string
+}
+
+// DefaultModelName returns the configured default model, falling back to the first available.
+func (c *RHTConfig) DefaultModelName() string {
+	if c.DefaultModel != "" {
+		if _, ok := c.Models[c.DefaultModel]; ok {
+			return c.DefaultModel
+		}
+	}
+	for k := range c.Models {
+		return k
+	}
+	return ""
 }
 
 // RHTModel holds a single model's config.
@@ -43,9 +59,11 @@ func LoadRHTConfig() (*RHTConfig, error) {
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
 		}
+		cfg := config.Load()
 		return &RHTConfig{
-			URLTemplate: raw.URLTemplate,
-			Models:      raw.Models,
+			URLTemplate:  raw.URLTemplate,
+			Models:       raw.Models,
+			DefaultModel: cfg.DefaultModel,
 		}, nil
 	}
 
