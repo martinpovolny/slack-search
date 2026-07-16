@@ -329,7 +329,7 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
                 </div>
               )}
               {(m.sql || m.result?.Result) && (() => {
-                const hasAnswer = m.result?.Answer && m.result.Answer.length > 0
+                const hasAnswer = (m.result?.Answer && m.result.Answer.length > 0) || (m.content && !m.content.startsWith('SQL: '))
                 return (
                   <div className="mt-1 space-y-1 text-xs">
                     {m.sql && (
