@@ -329,7 +329,12 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
                   <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1 bg-gray-200 p-2 rounded overflow-x-auto">{m.sql}</pre></details>
                 )}
               </div>
-              {m.result?.Result && <div className="mt-2"><DataTable data={m.result.Result} /></div>}
+              {m.result?.Result && (
+                <details className="mt-2 text-xs">
+                  <summary className="cursor-pointer text-gray-500">Results ({m.result.Result.Rows?.length || 0} rows)</summary>
+                  <div className="mt-1"><DataTable data={m.result.Result} /></div>
+                </details>
+              )}
             </div>
           ))}
           {loading && <div className="text-sm text-gray-400">Thinking…</div>}
