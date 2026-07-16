@@ -319,7 +319,7 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
       <ResizeDivider onResize={delta => setConvWidth(w => Math.max(100, Math.min(400, w + delta)))} />
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col max-w-3xl pl-3">
+      <div className="flex-1 flex flex-col pl-3">
         <div className="flex-1 overflow-y-auto space-y-3 pb-4">
           {messages.map((m, i) => (
             <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
@@ -493,7 +493,7 @@ function SQLTab() {
   }
 
   return (
-    <div className="space-y-3 max-w-4xl">
+    <div className="space-y-3">
       <h2 className="text-lg font-semibold text-gray-800">SQL Query</h2>
       <textarea
         value={query}
@@ -540,7 +540,7 @@ function SearchTab() {
   }
 
   return (
-    <div className="space-y-3 max-w-4xl">
+    <div className="space-y-3">
       <h2 className="text-lg font-semibold text-gray-800">Slack Search</h2>
       {connected === false && (
         <div className="text-sm bg-yellow-50 border border-yellow-200 rounded-lg p-3 text-yellow-800">
