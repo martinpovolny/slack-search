@@ -37,6 +37,11 @@ func loadPrompt(db *sql.DB) string {
 		"prompts/nl_to_sql.md",
 	}
 
+	// Check ~/.slack-search/prompts/
+	if home, err := os.UserHomeDir(); err == nil {
+		promptPaths = append(promptPaths, filepath.Join(home, ".slack-search", "prompts", "nl_to_sql.md"))
+	}
+
 	// Also check relative to the executable
 	if exe, err := os.Executable(); err == nil {
 		promptPaths = append(promptPaths, filepath.Join(filepath.Dir(exe), "prompts", "nl_to_sql.md"))
@@ -73,6 +78,9 @@ func loadPrompt(db *sql.DB) string {
 func loadSynthesisPrompt() string {
 	paths := []string{
 		"prompts/synthesis.md",
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		paths = append(paths, filepath.Join(home, ".slack-search", "prompts", "synthesis.md"))
 	}
 	if exe, err := os.Executable(); err == nil {
 		paths = append(paths, filepath.Join(filepath.Dir(exe), "prompts", "synthesis.md"))

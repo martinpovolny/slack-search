@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"runtime"
@@ -160,7 +161,13 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "", "")
 	}
 
+	queryStart := time.Now()
+	log.Printf("NLQ: model=%s question=%q", modelName, req.Question)
 	result, qErr := nlq.RunQuery(h.db, req.Question, baseURL, apiKey, apiModelID, maxRows)
+	log.Printf("NLQ: model=%s duration=%v mode=%s error=%v",
+		modelName, time.Since(queryStart).Round(time.Millisecond),
+		func() string { if result != nil { return result.Mode } ; return "nil" }(),
+		qErr)
 	if qErr != nil && result == nil {
 		jsonError(w, qErr.Error(), 500)
 		return
