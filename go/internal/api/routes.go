@@ -157,7 +157,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 
 	// Save user message to conversation
 	if req.ConversationID != "" && h.convDB != nil {
-		db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "")
+		db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "", "")
 	}
 
 	result, qErr := nlq.RunQuery(h.db, req.Question, baseURL, apiKey, apiModelID, maxRows)
@@ -173,7 +173,13 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 			content = "SQL: " + result.SQL
 		}
 		sqlText := result.SQL
-		db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText)
+		var resultJSON string
+		if result.Result != nil {
+			if data, err := json.Marshal(result.Result); err == nil {
+				resultJSON = string(data)
+			}
+		}
+		db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText, resultJSON)
 
 		// Auto-title on first exchange
 		convs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)

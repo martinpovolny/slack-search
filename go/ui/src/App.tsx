@@ -246,8 +246,9 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
     setActiveConv(id)
     const resp = await fetch(`/api/conversations/${id}/messages`)
     const msgs = await resp.json()
-    setMessages((msgs || []).map((m: { role: string; content: string; sql?: string }) => ({
-      role: m.role, content: m.content, sql: m.sql
+    setMessages((msgs || []).map((m: { role: string; content: string; sql?: string; result?: SearchResult }) => ({
+      role: m.role, content: m.content, sql: m.sql,
+      result: m.result ? { SQL: m.sql || '', Answer: '', Result: m.result, Error: '', Mode: 'table' } as NLQResult : undefined
     })))
   }
 

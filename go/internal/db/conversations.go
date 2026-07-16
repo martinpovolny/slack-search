@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS messages (
     role            TEXT NOT NULL,
     content         TEXT NOT NULL,
     sql_text        TEXT,
+    result_json     TEXT,
     created_at      REAL NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
@@ -42,7 +44,31 @@ func OpenConversationsDB(path string) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("init conversations schema: %w", err)
 	}
+	migrateConvDB(db)
 	return db, nil
+}
+
+func migrateConvDB(db *sql.DB) {
+	rows, _ := db.Query("PRAGMA table_info(messages)")
+	if rows == nil {
+		return
+	}
+	defer rows.Close()
+	has := false
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull int
+		var dflt sql.NullString
+		var pk int
+		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
+		if name == "result_json" {
+			has = true
+		}
+	}
+	if !has {
+		db.Exec("ALTER TABLE messages ADD COLUMN result_json TEXT")
+	}
 }
 
 // Conversation represents a stored conversation.
@@ -98,15 +124,16 @@ func DeleteConversation(db *sql.DB, id string) error {
 
 // ConvMessage represents a message in a conversation.
 type ConvMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
-	SQL     string `json:"sql,omitempty"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	SQL        string          `json:"sql,omitempty"`
+	ResultJSON json.RawMessage `json:"result,omitempty"`
 }
 
 // LoadConvMessages returns all messages in a conversation.
 func LoadConvMessages(db *sql.DB, conversationID string) ([]ConvMessage, error) {
 	rows, err := db.Query(
-		"SELECT role, content, sql_text FROM messages WHERE conversation_id=? ORDER BY created_at",
+		"SELECT role, content, sql_text, result_json FROM messages WHERE conversation_id=? ORDER BY created_at",
 		conversationID,
 	)
 	if err != nil {
@@ -117,22 +144,25 @@ func LoadConvMessages(db *sql.DB, conversationID string) ([]ConvMessage, error) 
 	var msgs []ConvMessage
 	for rows.Next() {
 		var m ConvMessage
-		var sqlText sql.NullString
-		if err := rows.Scan(&m.Role, &m.Content, &sqlText); err != nil {
+		var sqlText, resultJSON sql.NullString
+		if err := rows.Scan(&m.Role, &m.Content, &sqlText, &resultJSON); err != nil {
 			return nil, err
 		}
 		m.SQL = sqlText.String
+		if resultJSON.Valid && resultJSON.String != "" {
+			m.ResultJSON = json.RawMessage(resultJSON.String)
+		}
 		msgs = append(msgs, m)
 	}
 	return msgs, rows.Err()
 }
 
 // AppendConvMessage adds a message to a conversation.
-func AppendConvMessage(db *sql.DB, conversationID, role, content, sqlText string) error {
+func AppendConvMessage(db *sql.DB, conversationID, role, content, sqlText, resultJSON string) error {
 	now := float64(time.Now().UnixMilli()) / 1000.0
 	_, err := db.Exec(
-		"INSERT INTO messages(conversation_id, role, content, sql_text, created_at) VALUES (?,?,?,?,?)",
-		conversationID, role, content, nullStr(sqlText), now,
+		"INSERT INTO messages(conversation_id, role, content, sql_text, result_json, created_at) VALUES (?,?,?,?,?,?)",
+		conversationID, role, content, nullStr(sqlText), nullStr(resultJSON), now,
 	)
 	if err != nil {
 		return err
