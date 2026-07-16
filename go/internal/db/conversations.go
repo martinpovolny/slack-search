@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS messages (
     content         TEXT NOT NULL,
     sql_text        TEXT,
     result_json     TEXT,
+    metadata        TEXT,
     created_at      REAL NOT NULL,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE CASCADE
 );
@@ -49,12 +50,20 @@ func OpenConversationsDB(path string) (*sql.DB, error) {
 }
 
 func migrateConvDB(db *sql.DB) {
+	if !hasCol(db, "result_json") {
+		db.Exec("ALTER TABLE messages ADD COLUMN result_json TEXT")
+	}
+	if !hasCol(db, "metadata") {
+		db.Exec("ALTER TABLE messages ADD COLUMN metadata TEXT")
+	}
+}
+
+func hasCol(db *sql.DB, col string) bool {
 	rows, _ := db.Query("PRAGMA table_info(messages)")
 	if rows == nil {
-		return
+		return false
 	}
 	defer rows.Close()
-	has := false
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -62,13 +71,11 @@ func migrateConvDB(db *sql.DB) {
 		var dflt sql.NullString
 		var pk int
 		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
-		if name == "result_json" {
-			has = true
+		if name == col {
+			return true
 		}
 	}
-	if !has {
-		db.Exec("ALTER TABLE messages ADD COLUMN result_json TEXT")
-	}
+	return false
 }
 
 // Conversation represents a stored conversation.
@@ -158,11 +165,11 @@ func LoadConvMessages(db *sql.DB, conversationID string) ([]ConvMessage, error) 
 }
 
 // AppendConvMessage adds a message to a conversation.
-func AppendConvMessage(db *sql.DB, conversationID, role, content, sqlText, resultJSON string) error {
+func AppendConvMessage(db *sql.DB, conversationID, role, content, sqlText, resultJSON, metadata string) error {
 	now := float64(time.Now().UnixMilli()) / 1000.0
 	_, err := db.Exec(
-		"INSERT INTO messages(conversation_id, role, content, sql_text, result_json, created_at) VALUES (?,?,?,?,?,?)",
-		conversationID, role, content, nullStr(sqlText), nullStr(resultJSON), now,
+		"INSERT INTO messages(conversation_id, role, content, sql_text, result_json, metadata, created_at) VALUES (?,?,?,?,?,?,?)",
+		conversationID, role, content, nullStr(sqlText), nullStr(resultJSON), nullStr(metadata), now,
 	)
 	if err != nil {
 		return err
