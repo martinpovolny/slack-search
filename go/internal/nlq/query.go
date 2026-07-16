@@ -118,7 +118,7 @@ func RunQuery(db *sql.DB, question, baseURL, apiKey, model string, maxRows int) 
 	systemPrompt := loadPrompt(db)
 
 	// Phase 1: NL → SQL
-	llmResp, err := chatComplete(baseURL, apiKey, model, systemPrompt, question)
+	llmResp, err := ChatComplete(baseURL, apiKey, model, systemPrompt, question)
 	if err != nil {
 		return &QueryResult{Question: question, Error: err.Error()}, err
 	}
@@ -162,7 +162,7 @@ func RunQuery(db *sql.DB, question, baseURL, apiKey, model string, maxRows int) 
 		synthQuestion := fmt.Sprintf("Original question: %s\n\nSQL query:\n```sql\n%s\n```\n\nResults (%d rows):\n%s",
 			question, sqlText, len(result.Rows), table)
 
-		answer, err := chatComplete(baseURL, apiKey, model, synthPrompt, synthQuestion)
+		answer, err := ChatComplete(baseURL, apiKey, model, synthPrompt, synthQuestion)
 		if err != nil {
 			qr.Error = fmt.Sprintf("synthesis error: %v", err)
 		} else {
@@ -190,7 +190,8 @@ func resultToMarkdown(r *search.Result) string {
 	return b.String()
 }
 
-func chatComplete(baseURL, apiKey, model, systemPrompt, userMessage string) (string, error) {
+// ChatComplete calls an OpenAI-compatible chat completion API.
+func ChatComplete(baseURL, apiKey, model, systemPrompt, userMessage string) (string, error) {
 	body := map[string]interface{}{
 		"model": model,
 		"messages": []map[string]string{

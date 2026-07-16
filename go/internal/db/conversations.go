@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -183,15 +184,11 @@ func AutoTitle(msg string, maxLen int) string {
 	if maxLen <= 0 {
 		maxLen = 60
 	}
-	lines := []byte(msg)
-	// Take first line
-	for i, b := range lines {
-		if b == '\n' {
-			lines = lines[:i]
-			break
-		}
+	t := msg
+	if idx := strings.Index(t, "\n"); idx >= 0 {
+		t = t[:idx]
 	}
-	t := string(lines)
+	t = strings.TrimSpace(t)
 	if len(t) <= maxLen {
 		return t
 	}

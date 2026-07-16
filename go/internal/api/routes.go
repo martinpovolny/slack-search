@@ -60,6 +60,13 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen]
+}
+
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
@@ -194,11 +201,17 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		metaJSON, _ := json.Marshal(meta)
 		db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText, resultJSON, string(metaJSON))
 
-		// Auto-title on first exchange
-		convs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)
-		if len(convs) <= 2 {
-			title := db.AutoTitle(req.Question, 60)
-			db.RenameConversation(h.convDB, req.ConversationID, title)
+		// Auto-title on first exchange — ask the LLM for a short title
+		convMsgs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)
+		if len(convMsgs) <= 2 {
+			titlePrompt := "You generate short conversation titles. Reply with ONLY the title — no quotes, no punctuation at the end, 5 words maximum."
+			titleQ := fmt.Sprintf("Question: %s\nAnswer summary: %s", req.Question, truncate(content, 300))
+			if title, err := nlq.ChatComplete(baseURL, apiKey, apiModelID, titlePrompt, titleQ); err == nil {
+				title = strings.TrimSpace(title)
+				if len(title) > 0 && len(title) < 80 {
+					db.RenameConversation(h.convDB, req.ConversationID, title)
+				}
+			}
 		}
 	}
 
