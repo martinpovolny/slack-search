@@ -41,7 +41,9 @@ def _load_system_prompt(prompt_path: Path | None = None, conn: sqlite3.Connectio
                 archive_range = f"Archive date range: {row[0]} to {row[1]}. "
         except Exception:
             pass
-    header = f"Today is {today}. {archive_range}When the user mentions a date without a year, use a year within the archive range.\n\n"
+    from datetime import date as _d
+    year = _d.today().year
+    header = f"Today is {today}. The current year is {year}. {archive_range}When the user mentions a date without a year, assume the current year ({year}) unless the context clearly refers to a past year. Always use timestamp >= unixepoch('YYYY-MM-DD') for date filtering, never datetime(...) >= 'YYYY-...'.\n\n"
     return header + text
 
 

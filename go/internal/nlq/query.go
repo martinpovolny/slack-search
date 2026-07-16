@@ -71,7 +71,8 @@ func loadPrompt(db *sql.DB) string {
 		}
 	}
 
-	header := fmt.Sprintf("Today is %s. %sWhen the user mentions a date without a year, use a year within the archive range.\n\n", today, archiveRange)
+	header := fmt.Sprintf("Today is %s. The current year is %d. %sWhen the user mentions a date without a year, assume the current year (%d) unless the context clearly refers to a past year. Always use timestamp >= unixepoch('YYYY-MM-DD') for date filtering, never datetime(...) >= 'YYYY-...'.\n\n",
+		today, time.Now().Year(), archiveRange, time.Now().Year())
 	return header + promptText
 }
 
