@@ -325,15 +325,16 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
             <div key={i} className={`text-sm ${m.role === 'user' ? 'text-right' : ''}`}>
               <div className={`inline-block max-w-[85%] rounded-lg px-3 py-2 ${m.role === 'user' ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-800'}`}>
                 <MessageContent text={m.content} jiraConfig={jiraConfig} />
-                {m.sql && (
-                  <details className="mt-1 text-xs opacity-75"><summary>SQL</summary><pre className="mt-1 bg-gray-200 p-2 rounded overflow-x-auto">{m.sql}</pre></details>
-                )}
               </div>
-              {m.result?.Result && (
-                <details className="mt-2 text-xs">
-                  <summary className="cursor-pointer text-gray-500">Results ({m.result.Result.Rows?.length || 0} rows)</summary>
-                  <div className="mt-1"><DataTable data={m.result.Result} /></div>
-                </details>
+              {(m.sql || m.result?.Result) && (
+                <div className="mt-1 space-y-1 text-xs">
+                  {m.sql && (
+                    <details><summary className="cursor-pointer text-gray-500">SQL</summary><pre className="mt-1 bg-gray-100 p-2 rounded overflow-x-auto">{m.sql}</pre></details>
+                  )}
+                  {m.result?.Result && (
+                    <details><summary className="cursor-pointer text-gray-500">Results ({m.result.Result.Rows?.length || 0} rows)</summary><div className="mt-1"><DataTable data={m.result.Result} /></div></details>
+                  )}
+                </div>
               )}
             </div>
           ))}
