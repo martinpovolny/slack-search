@@ -204,8 +204,8 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		// Auto-title on first exchange — ask the LLM for a short title
 		convMsgs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)
 		if len(convMsgs) <= 2 {
-			titlePrompt := "You generate short conversation titles. Reply with ONLY the title — no quotes, no punctuation at the end, 5 words maximum."
-			titleQ := fmt.Sprintf("Question: %s\nAnswer summary: %s", req.Question, truncate(content, 300))
+			titlePrompt := "You generate short conversation titles based on the user's question. The title must reflect what the user asked, not what the answer contained. Reply with ONLY the title — no quotes, no punctuation at the end, 5 words maximum."
+			titleQ := fmt.Sprintf("Question: %s", req.Question)
 			if title, err := nlq.ChatComplete(baseURL, apiKey, apiModelID, titlePrompt, titleQ); err == nil {
 				title = strings.TrimSpace(title)
 				if len(title) > 0 && len(title) < 80 {
