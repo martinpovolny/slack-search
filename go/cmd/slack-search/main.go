@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/martinpovolny/slack-search/internal/config"
+	"github.com/martinpovolny/slack-search/internal/mcpserver"
 	"github.com/martinpovolny/slack-search/internal/timeparse"
 	"github.com/martinpovolny/slack-search/internal/api"
 	"github.com/martinpovolny/slack-search/internal/db"
@@ -54,6 +55,8 @@ func main() {
 		cmdNLQ(dbPath)
 	case "grep":
 		cmdGrep(dbPath)
+	case "mcp":
+		cmdMCP(dbPath)
 	case "eval":
 		cmdEval(dbPath)
 	case "serve":
@@ -79,6 +82,7 @@ Commands:
   schema      Show the database schema
   nlq         Natural language query (NL → SQL)
   grep        Search messages by text or regex
+  mcp         Start MCP server on stdio (for Claude Code, Cursor, etc.)
   eval        Run NLQ evaluation test suite
   serve       Start the web UI server
 
@@ -414,6 +418,13 @@ func cmdGrep(dbPath string) {
 	if pagerCmd != nil {
 		out.Close()
 		pagerCmd.Wait()
+	}
+}
+
+func cmdMCP(dbPath string) {
+	conn := openDB(dbPath)
+	if err := mcpserver.Serve(conn); err != nil {
+		log.Fatal(err)
 	}
 }
 

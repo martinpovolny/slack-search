@@ -81,4 +81,5 @@ Feature tracking for the Go reimplementation of slack-search.
 |------|---------|-------|
 | F24 | User name filter in sidebar/browse | Filter by login, full name; prototype in Python first, then port to Go |
 | F25 | MCP server | Expose slack-search as an MCP server — lets Claude Code, Cursor, and other agents query the Slack archive directly via tools (search, grep, nlq). Go binary would serve both the web UI and MCP over stdio/SSE. |
-| F26 | Jira ticket linking | Config: base Jira URL + list of project prefixes (e.g. COST, FLPATH). Patterns like COST-454 auto-rendered as clickable links in messages (Browse, Ask, Search tabs). Config in `~/.slack-search/config.json`. |
+| ~~F26~~ | ~~Jira ticket linking~~ | **done** |
+| F27 | Canvas/bookmarks archiving | Canvases need Slack OAuth app (xoxp- token) — xoxc- blocked. Bookmarks + topic/purpose possible with current auth. |
