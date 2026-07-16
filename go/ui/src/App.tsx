@@ -30,7 +30,7 @@ interface AppConfig {
 }
 
 function App() {
-  const [tab, setTab] = useState<Tab>('browse')
+  const [tab, setTab] = useState<Tab>('nlq')
   const [browseChannel, setBrowseChannel] = useState('')
   const [channels, setChannels] = useState<Channel[]>([])
   const [stats, setStats] = useState<{ message_count: number; channel_count: number; oldest: string; newest: string; workspace: string } | null>(null)
@@ -259,7 +259,14 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
 
   const ask = async () => {
     if (!question.trim()) return
-    if (!activeConv) await newConv()
+    let convId = activeConv
+    if (!convId) {
+      const resp = await fetch('/api/conversations', { method: 'POST' })
+      const data = await resp.json()
+      convId = data.id
+      setActiveConv(convId)
+      setConversations(prev => [{ id: convId!, title: 'New conversation' }, ...prev])
+    }
 
     const userMsg = question
     setQuestion('')
@@ -270,7 +277,7 @@ function NLQTab({ jiraConfig }: { jiraConfig?: AppConfig | null }) {
       const resp = await fetch('/api/nlq', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: userMsg, conversation_id: activeConv, max_rows: maxRows }),
+        body: JSON.stringify({ question: userMsg, conversation_id: convId, max_rows: maxRows }),
       })
       const data: NLQResult = await resp.json()
       const content = data.Answer || (data.SQL ? `SQL: ${data.SQL}` : data.Error || '')
