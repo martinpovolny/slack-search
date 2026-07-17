@@ -84,3 +84,4 @@ Feature tracking for the Go reimplementation of slack-search.
 | ~~F26~~ | ~~Jira ticket linking~~ | **done** |
 | F27 | Canvas/bookmarks archiving | Canvases need Slack OAuth app (xoxp- token) — xoxc- blocked. Bookmarks + topic/purpose possible with current auth. |
 | F28 | Explore integration with [slack-mcp](https://github.com/redhat-community-ai-tools/slack-mcp) | RH community MCP server for live Slack interaction (21+ tools: read/post messages, channels, reactions, search). Complementary — our MCP queries local archive, theirs talks to Slack live. Could share auth, combine local history search with live posting. |
+| F29 | Auto-refresh tokens from Slack desktop app | Linux: slack-mcp has a working script using GNOME Keyring. macOS: Cookies DB exists at `~/Library/Application Support/Slack/Cookies` (SQLite, v10 encrypted) but decryption needs Electron safeStorage — non-trivial. |
