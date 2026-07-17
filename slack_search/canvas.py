@@ -126,8 +126,9 @@ def discover_canvases(
                 "source": "channel_canvas",
             })
 
-        # Canvas tabs
-        for tab in props.get("tabs", []):
+        # Canvas tabs (check both "tabs" and "tabz" — Slack uses both)
+        all_tabs = props.get("tabs", []) + props.get("tabz", [])
+        for tab in all_tabs:
             if tab.get("type") == "canvas" and tab.get("data", {}).get("file_id"):
                 fid = tab["data"]["file_id"]
                 if fid not in [r["file_id"] for r in results]:
