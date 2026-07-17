@@ -123,21 +123,23 @@ def discover_canvases(
                 "channel_name": ch["name"],
                 "file_id": canvas["file_id"],
                 "quip_id": canvas.get("quip_thread_id", ""),
-                "source": "channel_canvas",
+                "tab_label": "",
             })
 
         # Canvas tabs (check both "tabs" and "tabz" — Slack uses both)
         all_tabs = props.get("tabs", []) + props.get("tabz", [])
         for tab in all_tabs:
-            if tab.get("type") == "canvas" and tab.get("data", {}).get("file_id"):
-                fid = tab["data"]["file_id"]
+            if tab.get("type") in ("canvas", "channel_canvas") and not tab.get("is_disabled"):
+                fid = tab.get("data", {}).get("file_id", "")
+                if not fid:
+                    continue
                 if fid not in [r["file_id"] for r in results]:
                     results.append({
                         "channel_id": ch["id"],
                         "channel_name": ch["name"],
                         "file_id": fid,
                         "quip_id": "",
-                        "source": f"tab:{tab.get('label', '')}",
+                        "tab_label": tab.get("label", ""),
                     })
 
     # Resolve quip IDs for any that are missing
@@ -203,14 +205,16 @@ def download_canvases(
             continue
 
         plain_text, html_content = result
-        # Extract title: look for a heading-like line (skip short/ID-like lines)
-        title = ""
-        for line in plain_text.split("\n"):
-            line = line.strip()
-            if len(line) < 5 or line.startswith("(") or re.match(r"^[A-Za-z0-9]{11,}$", line):
-                continue
-            title = line[:100]
-            break
+        # Title: prefer tab label from API, fall back to first content line
+        title = c.get("tab_label", "").strip()
+        if not title:
+            for line in plain_text.split("\n"):
+                line = line.strip()
+                if len(line) > 5 and not line.startswith("http") and not re.match(r"^[a-z_]+$", line):
+                    title = line[:100]
+                    break
+        if not title:
+            title = f"Canvas ({c['file_id'][:8]})"
 
         conn.execute(
             """INSERT OR REPLACE INTO canvases
