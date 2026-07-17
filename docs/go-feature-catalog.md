@@ -83,3 +83,4 @@ Feature tracking for the Go reimplementation of slack-search.
 | F25 | MCP server | Expose slack-search as an MCP server — lets Claude Code, Cursor, and other agents query the Slack archive directly via tools (search, grep, nlq). Go binary would serve both the web UI and MCP over stdio/SSE. |
 | ~~F26~~ | ~~Jira ticket linking~~ | **done** |
 | F27 | Canvas/bookmarks archiving | Canvases need Slack OAuth app (xoxp- token) — xoxc- blocked. Bookmarks + topic/purpose possible with current auth. |
+| F28 | Explore integration with [slack-mcp](https://github.com/redhat-community-ai-tools/slack-mcp) | RH community MCP server for live Slack interaction (21+ tools: read/post messages, channels, reactions, search). Complementary — our MCP queries local archive, theirs talks to Slack live. Could share auth, combine local history search with live posting. |
