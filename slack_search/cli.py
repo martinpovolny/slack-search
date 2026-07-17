@@ -18,6 +18,7 @@ from .curl_parser import parse_curl
 from .grep import grep_messages
 from .slack_client import SlackAuthError
 from .slack_search_api import run_slack_search, extract_highlight_term
+from .canvas import download_canvases
 
 console = Console()
 
@@ -668,6 +669,88 @@ def live_search_cmd(
             render(console)
     else:
         render(console)
+
+
+@cli.command("canvas-download")
+@click.option("--curl", "curl_command", envvar="SLACK_CURL", default=None, metavar="CURL",
+              help="'Copy as cURL' command from Chrome DevTools")
+@click.option("--token", envvar="SLACK_TOKEN", default=None, help="Slack token")
+@click.option("--cookie", envvar="SLACK_COOKIE", default=None, help="Value of the 'd' cookie (xoxc- only)")
+@click.option("--workspace", envvar="SLACK_WORKSPACE", default=None, help="Workspace hostname")
+@click.option("--file-id", multiple=True, help="Specific canvas file ID(s) to download (repeatable)")
+@click.option("--channel", default=None, help="Channel to associate with --file-id canvases")
+@click.pass_context
+def canvas_download_cmd(
+    ctx: click.Context,
+    curl_command: Optional[str],
+    token: Optional[str],
+    cookie: Optional[str],
+    workspace: Optional[str],
+    file_id: tuple,
+    channel: Optional[str],
+) -> None:
+    """Download canvases from subscribed channels.
+
+    Auto-discovers canvases via conversations.info. Use --file-id to
+    download specific canvases (e.g. from shared docs links).
+    """
+    raw_cookies: Optional[str] = None
+    if curl_command:
+        try:
+            creds = parse_curl(curl_command)
+        except ValueError as e:
+            console.print(f"[red]Could not parse curl command:[/] {e}")
+            raise SystemExit(1)
+        token = token or creds.token
+        cookie = cookie or creds.cookie
+        workspace = workspace or creds.workspace
+        raw_cookies = creds.raw_cookies
+
+    if not token:
+        console.print("[red]Error:[/] No token found. Pass --token, set SLACK_TOKEN, or use --curl.")
+        raise SystemExit(1)
+    if not workspace:
+        console.print("[red]Error:[/] --workspace is required for canvas download.")
+        raise SystemExit(1)
+
+    from .slack_client import SlackClient
+    client = SlackClient(token=token, cookie=cookie, workspace=workspace, raw_cookies=raw_cookies)
+
+    conn = ctx.obj["db"]
+    try:
+        if file_id:
+            from .canvas import fetch_canvas, _build_request_binary
+            import time as _time
+            channel_id = channel or "unknown"
+            for fid in file_id:
+                console.print(f"  Fetching canvas {fid}…")
+                lookup = client._post("quip.lookupThreadIds", file_ids=fid)
+                qid = lookup.get("lookup", {}).get(fid, "")
+                if not qid:
+                    console.print(f"  [red]Could not resolve quip ID for {fid}[/]")
+                    continue
+                result = fetch_canvas(client.session, workspace, client.token, qid)
+                if result:
+                    plain, html = result
+                    title = ""
+                    for line in plain.split("\n"):
+                        line = line.strip()
+                        if len(line) > 5:
+                            title = line[:100]
+                            break
+                    conn.execute(
+                        "INSERT OR REPLACE INTO canvases (file_id, channel_id, quip_id, title, content_text, content_html, updated_at) VALUES (?,?,?,?,?,?,?)",
+                        (fid, channel_id, qid, title, plain, html, _time.time()),
+                    )
+                    conn.commit()
+                    console.print(f"  [green]✓[/] {len(plain)} chars, title: {title[:50]}")
+                else:
+                    console.print(f"  [red]Failed to fetch {fid}[/]")
+        else:
+            download_canvases(conn, client, workspace)
+    except SlackAuthError as e:
+        console.print(f"\n[red bold]Authentication failed:[/] {e}")
+        raise SystemExit(2)
 
 
 # Aliases

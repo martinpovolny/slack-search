@@ -51,6 +51,17 @@ CREATE TABLE IF NOT EXISTS download_state (
     latest_ts       TEXT,
     oldest_ts       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS canvases (
+    file_id       TEXT PRIMARY KEY,
+    channel_id    TEXT NOT NULL,
+    quip_id       TEXT,
+    title         TEXT,
+    content_text  TEXT,
+    content_html  TEXT,
+    updated_at    REAL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id)
+);
 """
 
 
