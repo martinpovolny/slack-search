@@ -10,7 +10,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>/Users/mpovolny/Projects/slack-search/go/bin/slack-search refresh --curl-file /Users/mpovolny/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
+        <string>/Users/mpovolny/Projects/slack-search/bin/slack-search refresh --curl-file /Users/mpovolny/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
     </array>
 
     <key>StartInterval</key>

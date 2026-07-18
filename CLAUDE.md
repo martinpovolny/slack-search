@@ -1,103 +1,106 @@
-# slack-search
+# slack-search (Go)
 
-CLI + Streamlit tool for archiving Slack channels locally and querying them with SQL or natural language.
+Go reimplementation of the slack-search tool. Single self-contained binary with embedded Vite+React frontend.
 
-## Stack
+## Architecture
 
-- **Python 3.11+**, managed with `uv`
-- **SQLite** — local message store at `~/.slack-search/messages.db`
-- **Custom HTTP client** (`slack_search/slack_client.py`) — uses `requests` with POST + form-body token; the Slack SDK is NOT used because Enterprise Slack rejects `xoxc-` tokens sent in the `Authorization: Bearer` header
-- **OpenAI-compatible API** for NL→SQL (default: Ollama at `localhost:11434/v1`)
-- **Streamlit** web UI (`app.py`) — same style as the dictpert project
+- **Go HTTP backend** — all business logic, LLM integration, data access
+- **Vite + React + shadcn/ui frontend** — built to static assets, embedded via `//go:embed`
+- **Single binary** — zero runtime dependencies
+- See `go-embedded-ui-pattern.md` for full NFRs and patterns
 
-## Running
+## Building & Running
 
 ```bash
-# Download a channel (Enterprise Slack via browser curl)
-uv run slack-search download --curl "$(cat .curl)" --channel cost-mgmt-dev --since "3 weeks ago" --no-files
+# Build everything (frontend + Go binary)
+make all
 
-# Download (plain Slack with xoxp- token)
-SLACK_TOKEN=xoxp-... uv run slack-search download --channel general --since "2024-01-01"
+# Build Go binary only (requires ui-build to have run)
+make build
 
-# Refresh all subscribed channels (incremental, only channels explicitly downloaded)
-uv run slack-search refresh --curl "$(cat .curl)" --no-files
+# Development mode (Go backend :8088 + Vite HMR :5173)
+make dev
 
-# Raw SQL search (color Rich table output)
-uv run slack-search search "SELECT u.real_name, count(*) FROM messages m JOIN users u ON m.user_id=u.id GROUP BY u.id ORDER BY 2 DESC LIMIT 10"
+# Run tests
+make test
 
-# Natural language query (color output; synthesise mode sends results back to LLM for a plain-English answer)
-LLM_BASE_URL=https://api.opencode.ai/v1 LLM_MODEL=... uv run slack-search nlq "who sends the most messages?"
-
-# Live search against Slack's own search API (caches results locally)
-uv run slack-search live-search --curl "$(cat .curl)" "out of memory"
-
-# Web UI
-uv run streamlit run app.py
+# Run the binary
+./bin/slack-search
 ```
 
-## README maintenance
+## Data Directory
 
-**Always update `README.md`** when adding a new CLI subcommand or making a significant change to existing commands or the web UI. Add or update the relevant section so the README stays the authoritative reference for users.
+Everything lives under `~/.slack-search/` — the binary has zero dependency on the working directory.
 
-## Testing after every edit
+| File | Purpose |
+|---|---|
+| `~/.slack-search/messages.db` | Message archive (shared with Python version) |
+| `~/.slack-search/conversations.db` | NLQ conversation history |
+| `~/.slack-search/.curl` | Slack credentials (Chrome "Copy as cURL") |
+| `~/.slack-search/.rht_models.json` | RHT LLM provider config |
 
-After any code change, run the relevant check before considering the task done:
+The `serve` command auto-detects `.curl` from `~/.slack-search/.curl`. Override with `--curl-file path`.
 
-1. **Syntax / import check** (always):
-   ```bash
-   uv run slack-search --help
-   ```
+Schema is defined in `internal/db/database.go` — must stay in sync with `python/slack_search/database.py`. Never modify the schema without updating both.
 
-2. **Curl parsing** (after changes to `curl_parser.py`):
-   ```bash
-   uv run python3 -c "from slack_search.curl_parser import parse_curl; c=parse_curl(open('.curl').read()); print(c.token[:12], c.workspace, c.channel_id, bool(c.raw_cookies))"
-   ```
+## LLM Provider
 
-3. **Live download** (after changes to `downloader.py` or `slack_client.py`):
-   ```bash
-   uv run slack-search download --curl "$(cat .curl)" --channel cost-mgmt-dev --since "3 weeks ago" --no-files --no-threads
-   ```
+- **RHT models.corp only** — reads config from `~/.slack-search/.rht_models.json` (or project root `.rht_models.json`)
+- OpenAI-compatible API via the URL template in the config file
+- No other providers (no LiteMaaS, LM Studio, OpenCode)
 
-4. **SQL search** (after changes to `search.py` or `database.py`):
-   ```bash
-   uv run slack-search search "SELECT count(*) FROM messages"
-   ```
+## Background Refresh
 
-## Key design decisions
+The `serve` command includes a built-in background refresh goroutine (no external cron needed):
 
-- **Enterprise Slack auth**: `xoxc-` browser tokens require ALL session cookies (not just `d=xoxd-…`) sent as a `Cookie` header on every POST request. The full cookie string is extracted from `--curl`.
-- **Channel resolution**: `conversations.list` is banned in Enterprise Slack. Resolution order: (1) direct channel ID, (2) DB cache from a previous run, (3) `hint_id` from the curl payload, (4) `conversations.list` with a friendly error if restricted.
-- **Rate limiting**: hard cap of 1 req/s enforced in `SlackClient._throttle()`; retries on HTTP 429 with `Retry-After`.
-- **Cursor stored**: `download_state` table tracks `latest_ts` / `oldest_ts` per channel so reruns are incremental by default.
-- **Subscribed channels**: `channels.subscribed=1` marks channels explicitly downloaded via `download`. `live-search` caches messages from any channel but does NOT set `subscribed`. `refresh` only iterates subscribed channels so live-search results don't pollute the refresh list. Schema migration in `database._migrate()` auto-subscribes channels that already have `download_state`.
-- **SQLite concurrency**: The web UI opens a short-lived read-write connection per search operation (not a long-lived cached connection) so the CLI `download`/`refresh` commands are never blocked. The read-only connection used for browse/NLQ display is cached via `@st.cache_resource`. Search has 3-attempt retry with 2 s / 4 s backoff on lock errors.
-- **NLQ synthesise mode**: When the LLM response starts with `[SYNTHESISE]`, `ai_query.run_query()` caps the SQL results at `MAX_LLM_ROWS` (default 100) and sends them back to the LLM for a natural-language answer. The cap is configurable per-conversation in the web UI (100/500/1000).
+- **Default**: refreshes every 30 minutes with 7-day thread lookback
+- `--no-refresh` disables the background refresher
+- `--refresh-interval N` sets the interval in minutes (default 30)
+- `--lookback N` sets the thread catchup window in days (default 7)
 
-## File layout
+The goroutine recovers from panics and logs errors without crashing the web server. If credentials expire, it logs a clear error and retries on the next tick.
+
+For CLI-only usage, `refresh --lookback N` runs the same logic as a one-shot command. For a one-time gap fill, use `--lookback 30` or more.
+
+## Key Design Rules
+
+- All config from env vars or `~/.slack-search/` — no hardcoded paths
+- API routes under `/api/` prefix, static assets at `/`
+- SPA routing: serve `index.html` for non-API, non-asset 404s
+- Slack API client uses POST with token in form body (not Authorization header)
+- Enterprise Slack: `xoxc-` token + all cookies from `--curl`
+- Rate limiting: 1 req/s minimum between Slack API calls
+
+## Testing After Changes
+
+1. `go build ./cmd/slack-search` — must compile
+2. `go test ./...` — must pass
+3. Binary opens existing `~/.slack-search/messages.db` without error
+4. `curl localhost:8088/healthz` returns `{"status":"ok",...}`
+
+## File Layout
 
 ```
-slack_search/
-  cli.py              — click CLI entry point
-  curl_parser.py      — parses Chrome DevTools "Copy as cURL" output
-  slack_client.py     — raw HTTP Slack API client (POST form-body auth)
-  downloader.py       — channel resolution, pagination, thread fetching
-  database.py         — SQLite schema and CRUD
-  search.py           — SQL runner + schema documentation
-  ai_query.py         — NL → SQL via OpenAI-compatible API
-  grep.py             — full-text / regexp search over local archive
-  slack_search_api.py — Slack built-in search (search.messages) + local caching
-  slack_format.py     — shared text formatting (mention resolution, highlighting)
-app.py                — Streamlit web UI
-.curl                 — saved curl command for credentials (gitignored)
+├── cmd/slack-search/main.go     — entrypoint
+├── internal/                    — Go packages
+│   ├── api/                     — HTTP handlers + routes
+│   ├── db/                      — SQLite schema, CRUD, migrations
+│   ├── slack/                   — Slack API client + curl parser
+│   ├── search/                  — SQL search, grep
+│   ├── nlq/                     — NL→SQL pipeline + RHT provider
+│   ├── download/                — Download + refresh logic
+│   ├── format/                  — Mention resolution, highlighting
+│   ├── mcpserver/               — MCP server (stdio)
+│   └── web/embed.go             — //go:embed directive
+├── ui/                          — Vite + React frontend
+├── prompts/                     — System prompts for LLM
+├── completions/                 — Zsh completions
+├── python/                      — Python prototyping version
+├── docs/                        — Shared docs, presentations, feature catalog
+├── Makefile                     — Build commands
+└── go-embedded-ui-pattern.md    — Architecture NFRs
 ```
 
-## Environment variables
+## Feature Parity
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `SLACK_TOKEN` | — | Slack token (xoxp-/xoxb-/xoxc-) |
-| `SLACK_COOKIE` | — | `d` cookie value (xoxc- only) |
-| `SLACK_WORKSPACE` | — | e.g. `myorg.enterprise.slack.com` |
-| `LLM_BASE_URL` | `http://localhost:11434/v1` | OpenAI-compatible LLM endpoint |
-| `LLM_MODEL` | `qwen2.5-coder:7b` | Model name |
-| `LLM_API_KEY` | `local` | API key (`local` for Ollama) |
+Track progress in `docs/go-feature-catalog.md`. Update the Go column after each feature lands.

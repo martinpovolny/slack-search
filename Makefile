@@ -1,17 +1,41 @@
-.PHONY: schema test help
+BINARY     := slack-search
+GO_PKG     := ./cmd/slack-search
+UI_DIR     := ./ui
+COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+LDFLAGS    := -ldflags "-X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)"
 
-# Update the schema in all documents that embed it.
-#
-# Sources of truth:
-#   slack_search/search.py      SCHEMA_DESCRIPTION  →  doc/slack-search-skill.md  (brief)
-#   prompts/schema.sql                              →  prompts/nl_to_sql.md        (DDL)
-#   prompts/schema.sql                              →  doc/slack-search-skill.md   (DDL)
-schema:
-	uv run python scripts/inject_schema.py
+.PHONY: all build ui-build run dev clean test
 
+## Build everything: frontend then Go binary
+all: ui-build build
+
+## Build the Go binary (requires ui-build to have been run)
+build:
+	go build $(LDFLAGS) -o bin/$(BINARY) $(GO_PKG)
+
+## Build the Vite frontend
+ui-build:
+	cd $(UI_DIR) && npm ci && npm run build
+
+## Run the compiled binary
+run: all
+	./bin/$(BINARY)
+
+## Development mode: start Go backend + Vite dev server concurrently
+dev:
+	@echo "Starting Go backend on :8088 and Vite dev server on :5173"
+	go run $(GO_PKG) & \
+	cd $(UI_DIR) && npm run dev
+
+## Run Go tests
 test:
-	uv run pytest tests/ -q
+	go test ./...
 
-help:
-	@echo "make schema   — propagate schema changes to all documents"
-	@echo "make test     — run the test suite"
+## Cross-compile for Linux ARM64
+build-linux-arm64: ui-build
+	GOOS=linux GOARCH=arm64 go build $(LDFLAGS) -o bin/$(BINARY)-linux-arm64 $(GO_PKG)
+
+## Remove build artifacts
+clean:
+	rm -rf bin/ $(UI_DIR)/dist

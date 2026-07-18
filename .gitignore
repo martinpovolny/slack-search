@@ -1,18 +1,36 @@
-.venv/
-__pycache__/
+# Go binary output
+bin/
+
+# Frontend build output
+ui/dist/
+
+# Node dependencies
+ui/node_modules/
+
+# Python
+python/.venv/
+python/__pycache__/
 *.pyc
+
+# Credentials and config
 .curl
 .env
 .rht_models.json
+.slack_app
+
+# SQLite databases
 *.db
 ~/.slack-search/
-README.local.md
-.streamlit/
-.playwright-mcp/
-tests/results/
+
+# Docs/build artifacts
 *.png
 !docs/**/*.png
 docs/.markdown-viewer-temp.html
 .markdown-viewer-temp.html
+README.local.md
+
+# IDE / tools
+.streamlit/
+.playwright-mcp/
 .claude/settings.local.json
-.slack_app
+python/tests/results/

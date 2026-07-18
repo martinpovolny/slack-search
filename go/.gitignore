@@ -1,9 +1,0 @@
-# Go binary output
-bin/
-
-# Frontend build output — generated artifact, not source
-ui/dist/
-
-# Node dependencies
-ui/node_modules/
-go/bin/
