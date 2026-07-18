@@ -19,6 +19,7 @@ from .grep import grep_messages
 from .slack_client import SlackAuthError
 from .slack_search_api import run_slack_search, extract_highlight_term
 from .canvas import download_canvases
+from .bookmarks import download_bookmarks
 
 console = Console()
 
@@ -748,6 +749,37 @@ def canvas_download_cmd(
                     console.print(f"  [red]Failed to fetch {fid}[/]")
         else:
             download_canvases(conn, client, workspace)
+    except SlackAuthError as e:
+        console.print(f"\n[red bold]Authentication failed:[/] {e}")
+        raise SystemExit(2)
+
+
+@cli.command("bookmark-download")
+@click.option("--curl", "curl_command", envvar="SLACK_CURL", default=None, metavar="CURL")
+@click.option("--token", envvar="SLACK_TOKEN", default=None)
+@click.option("--cookie", envvar="SLACK_COOKIE", default=None)
+@click.option("--workspace", envvar="SLACK_WORKSPACE", default=None)
+@click.pass_context
+def bookmark_download_cmd(ctx, curl_command, token, cookie, workspace):
+    """Download bookmarks from subscribed channels."""
+    raw_cookies = None
+    if curl_command:
+        try:
+            creds = parse_curl(curl_command)
+        except ValueError as e:
+            console.print(f"[red]Could not parse curl command:[/] {e}")
+            raise SystemExit(1)
+        token = token or creds.token
+        cookie = cookie or creds.cookie
+        workspace = workspace or creds.workspace
+        raw_cookies = creds.raw_cookies
+    if not token:
+        console.print("[red]Error:[/] No token found.")
+        raise SystemExit(1)
+    from .slack_client import SlackClient
+    client = SlackClient(token=token, cookie=cookie, workspace=workspace, raw_cookies=raw_cookies)
+    try:
+        download_bookmarks(ctx.obj["db"], client)
     except SlackAuthError as e:
         console.print(f"\n[red bold]Authentication failed:[/] {e}")
         raise SystemExit(2)

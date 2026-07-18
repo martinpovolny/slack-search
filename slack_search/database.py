@@ -52,6 +52,17 @@ CREATE TABLE IF NOT EXISTS download_state (
     oldest_ts       TEXT
 );
 
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id            TEXT PRIMARY KEY,
+    channel_id    TEXT NOT NULL,
+    title         TEXT,
+    link          TEXT,
+    type          TEXT,
+    emoji         TEXT,
+    created_at    REAL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id)
+);
+
 CREATE TABLE IF NOT EXISTS canvases (
     file_id       TEXT PRIMARY KEY,
     channel_id    TEXT NOT NULL,
