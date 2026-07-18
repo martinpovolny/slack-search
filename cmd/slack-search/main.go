@@ -55,6 +55,8 @@ func main() {
 		cmdNLQ(dbPath)
 	case "grep":
 		cmdGrep(dbPath)
+	case "live-search":
+		cmdLiveSearch(dbPath)
 	case "mcp":
 		cmdMCP(dbPath)
 	case "eval":
@@ -82,6 +84,7 @@ Commands:
   schema      Show the database schema
   nlq         Natural language query (NL → SQL)
   grep        Search messages by text or regex
+  live-search Query Slack's search API and cache results locally
   mcp         Start MCP server on stdio (for Claude Code, Cursor, etc.)
   eval        Run NLQ evaluation test suite
   serve       Start the web UI server
@@ -415,6 +418,62 @@ func cmdGrep(dbPath string) {
 		out.Close()
 		pagerCmd.Wait()
 	}
+}
+
+func cmdLiveSearch(dbPath string) {
+	fs := flag.NewFlagSet("live-search", flag.ExitOnError)
+	var limit int
+	fs.IntVar(&limit, "n", 50, "Max results")
+
+	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
+
+	if fs.NArg() == 0 {
+		log.Fatal("Usage: slack-search live-search [--n 50] \"query\"")
+	}
+	query := strings.Join(fs.Args(), " ")
+
+	conn := openDB(dbPath)
+	defer conn.Close()
+
+	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
+
+	results, err := slackclient.LiveSearch(conn, client, query, limit)
+	if err != nil {
+		if slackclient.IsAuthError(err) {
+			fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
+			os.Exit(2)
+		}
+		log.Fatal(err)
+	}
+
+	// Resolve mentions
+	texts := make([]string, len(results))
+	for i, r := range results {
+		texts[i] = r.Text
+	}
+	uids := format.ExtractUIDs(texts)
+	userMap := format.BuildUserMap(conn, uids)
+
+	cfg := config.Load()
+	jiraRe := format.JiraLinkRe(cfg.JiraProjects)
+
+	const (
+		colorReset  = "\033[0m"
+		colorDim    = "\033[2m"
+		colorCyan   = "\033[36m"
+		colorYellow = "\033[33m"
+	)
+
+	for _, r := range results {
+		text := format.ResolveMentions(r.Text, userMap)
+		text = format.LinkifyJira(text, cfg.JiraURL, jiraRe)
+		fmt.Fprintf(os.Stdout, "%s[%s]%s %s#%s%s %s%s%s: %s\n",
+			colorDim, r.Time, colorReset,
+			colorCyan, r.Channel, colorReset,
+			colorYellow, r.Author, colorReset,
+			text)
+	}
+	fmt.Printf("\n%d result(s)\n", len(results))
 }
 
 func cmdMCP(dbPath string) {
