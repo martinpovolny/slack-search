@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
   "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Hourly background refresh for slack-search (macOS launchd).
+  Not needed if you run `slack-search serve` — it refreshes automatically.
+
+  Install:
+    ln -sf "$(pwd)/com.user.slack-refresh.plist" ~/Library/LaunchAgents/
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.slack-refresh.plist
+
+  Manage:
+    launchctl list | grep slack-refresh          # status
+    launchctl bootout gui/$(id -u)/com.user.slack-refresh  # pause
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.slack-refresh.plist  # resume
+    tail -f /tmp/slack-refresh.log               # logs
+
+  Before using: update the path to slack-search below to match your install location.
+-->
 <plist version="1.0">
 <dict>
     <key>Label</key>
@@ -10,7 +26,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>/Users/mpovolny/Projects/slack-search/bin/slack-search refresh --curl-file /Users/mpovolny/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
+        <string>slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
     </array>
 
     <key>StartInterval</key>
