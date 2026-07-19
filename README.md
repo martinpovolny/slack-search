@@ -40,7 +40,11 @@ slack-search refresh --curl-file ~/.slack-search/.curl
 slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7
 ```
 
-### Automatic hourly refresh (macOS)
+### Keeping channels up to date
+
+**Option A: `slack-search serve`** (recommended) — the web UI runs background refresh automatically. No extra setup needed.
+
+**Option B: macOS launchd** — if you only use the CLI and don't run `serve`:
 
 ```bash
 ln -sf "$(pwd)/com.user.slack-refresh.plist" ~/Library/LaunchAgents/
