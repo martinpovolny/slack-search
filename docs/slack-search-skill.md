@@ -4,9 +4,9 @@ This document tells a Claude instance how to answer questions about a Slack arch
 
 ## Setup
 
-The message database lives at `~/.slack-search/messages.db`. The Go binary is at `~/bin/slack-search` (symlink to `~/Projects/slack-search/go/bin/slack-search`).
+The message database lives at `~/.slack-search/messages.db`. The Go binary is `slack-search` (install via `go install` or build from source — see the [README](../README.md)).
 
-All CLI commands use `slack-search` directly (Go binary, no `uv run` needed).
+All CLI commands use `slack-search` directly (must be on `$PATH`).
 
 ---
 
