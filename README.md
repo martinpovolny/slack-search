@@ -1,73 +1,36 @@
 # slack-search
 
-Local Slack archive with fast search. Download channels, search with SQL, regex, or natural language — all offline.
+Download Slack channels to a local SQLite database. Search with grep, SQL, natural language, or through a web UI. Works as an MCP server for AI agents.
 
 ![Web UI](docs/web-ui-go.png)
 
-## Install
+## Quick Start
 
 ```bash
-# Build from source (requires Go 1.22+)
+# 1. Install
 go install github.com/martinpovolny/slack-search/cmd/slack-search@latest
 
-# Or clone and build
-git clone https://github.com/martinpovolny/slack-search.git
-cd slack-search && go build -o slack-search ./cmd/slack-search
+# 2. Get credentials — Chrome DevTools → Network → any Slack API call → Copy as cURL
+pbpaste > ~/.slack-search/.curl    # macOS; on Linux: xclip -o > ~/.slack-search/.curl
+
+# 3. Download a channel
+slack-search download --channel general --since "4 weeks ago" --curl-file ~/.slack-search/.curl
+
+# 4. Search
+slack-search grep -F "outage"
 ```
 
-Data is stored in `~/.slack-search/messages.db` (SQLite).
-
-## Setup
-
-Get credentials from your browser — open Slack in Chrome, DevTools → Network, find any API request, right-click → **Copy as cURL**, save to a file:
-
-```bash
-pbpaste > ~/.slack-search/.curl
-```
-
-The `xoxc-` token and session cookies typically remain valid for weeks to months.
-
-## Download channels
-
-```bash
-# Download a channel (incremental — only new messages)
-slack-search download --channel cost-mgmt-dev --since "3 weeks ago" --curl-file ~/.slack-search/.curl
-
-# Refresh all previously downloaded channels
-slack-search refresh --curl-file ~/.slack-search/.curl
-
-# Refresh + catch up thread replies from last 7 days
-slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7
-```
-
-### Keeping channels up to date
-
-**Option A: `slack-search serve`** (recommended) — the web UI runs background refresh automatically. No extra setup needed.
-
-**Option B: macOS launchd** — if you only use the CLI and don't run `serve`:
-
-```bash
-ln -sf "$(pwd)/com.user.slack-refresh.plist" ~/Library/LaunchAgents/
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.slack-refresh.plist
-```
-
-Check status: `launchctl list | grep slack-refresh`
-Logs: `tail -f /tmp/slack-refresh.log`
-
-## CLI Usage
-
-### grep — fast text search
+## grep
 
 ![grep output](docs/grep-output.png)
 
 ```bash
 slack-search grep -F "out of memory"                          # literal string
-slack-search grep -E "error|warning" -c cost-mgmt-dev         # regex in a channel
-slack-search grep -F "budget" -p Martin --since "2 weeks ago"  # by person + time
-slack-search grep -E "deadlock" -c cost-mgmt-dev -P            # paged output
+slack-search grep -E "error|warning" -c my-channel            # regex, specific channel
+slack-search grep -F "budget" -p Alice --since "2 weeks ago"  # by person + time range
 ```
 
-### search — raw SQL
+## SQL
 
 ```bash
 slack-search search "
@@ -76,88 +39,61 @@ slack-search search "
   GROUP BY u.id ORDER BY msgs DESC LIMIT 10"
 ```
 
-### live-search — query Slack's search API
-
-Searches Slack directly and caches results locally:
-
-```bash
-slack-search live-search --curl-file ~/.slack-search/.curl "SPSE principal engineer" -n 20
-```
-
-### nlq — natural language queries
-
-```bash
-slack-search nlq --model llama-3-3-70b-instruct-fp8-dynamic "who sends the most messages?"
-```
-
 ## Web UI
 
 ```bash
-slack-search serve
+slack-search serve    # includes background channel refresh
 ```
 
-Open http://localhost:8088. Features:
-- SQL and natural language query tabs
-- Slack live search (with `.curl` credentials)
-- Message highlighting and "Open in Slack" permalinks
-- LLM provider selection (RHT models.corp, local LM Studio)
+Open http://localhost:8088 — SQL, natural language queries, Slack live search, message permalinks.
+
+## More Commands
+
+| Command | What it does |
+|---------|-------------|
+| `download` | Download a channel (incremental) |
+| `refresh` | Update all previously downloaded channels |
+| `grep` | Search by text or regex with highlights |
+| `search` | Raw SQL against the archive |
+| `live-search` | Query Slack's search API, cache results locally |
+| `nlq` | Natural language → SQL → answer (requires LLM) |
+| `serve` | Web UI with background refresh |
+| `mcp` | MCP server for AI agents |
+
+## Keeping Channels Up to Date
+
+**`slack-search serve`** handles this automatically. If you only use the CLI:
+
+```bash
+slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7
+```
+
+On macOS, a launchd plist is included for hourly background refresh — see `com.user.slack-refresh.plist`.
 
 ## AI Agent Integration
 
-Two ways to give an AI agent access to your Slack archive:
-
-### Option A: MCP Server (recommended for Cursor / Claude Desktop)
-
-Structured tool calls — the agent discovers tools automatically.
-
-**Cursor / Claude Desktop** — add to `~/.cursor/mcp.json`:
+### MCP Server
 
 ```json
+// ~/.cursor/mcp.json
 {
   "mcpServers": {
-    "slack-search": {
-      "command": "slack-search",
-      "args": ["mcp"]
-    }
+    "slack-search": { "command": "slack-search", "args": ["mcp"] }
   }
 }
 ```
 
-**Claude Code:**
+Claude Code: `claude mcp add slack-search -- slack-search mcp`
 
-```bash
-claude mcp add slack-search -- slack-search mcp
-```
+Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`
 
-**Available tools:**
+### Skill file (alternative)
 
-| Tool | Description |
-|------|-------------|
-| `slack_grep` | Search messages by keyword or regex, with channel/person/date filters |
-| `slack_sql` | Execute raw SQL against the archive (read-only, SQLite) |
-| `slack_thread` | Fetch all messages in a thread by parent timestamp |
-| `slack_channels` | List subscribed channels in the archive |
-| `slack_schema` | Get DB schema, useful joins, and SQLite date function cheatsheet |
-
-### Option B: Skill file (recommended for Claude Code)
-
-Copy [`docs/slack-search-skill.md`](docs/slack-search-skill.md) into your project's `.claude/commands/` directory. The agent runs the Go CLI via Bash tool calls — no MCP protocol needed, works everywhere.
-
-```bash
-cp docs/slack-search-skill.md /path/to/your-project/.claude/commands/slack-search.md
-```
-
-Then invoke as `/slack-search <your question>` in Claude Code.
-
-The skill includes the full CLI reference, database schema, SQLite dialect gotchas, and recommended query workflows.
-
-## Python version
-
-The original Python implementation (Streamlit UI, `uv run` commands) is in the `python/` directory. Used for prototyping new features. The Go binary is the primary tool — it's faster, self-contained, and includes the web UI.
+Copy [`docs/slack-search-skill.md`](docs/slack-search-skill.md) to `.claude/commands/slack-search.md` — the agent calls the CLI via Bash. Includes full schema reference and query cookbook.
 
 ## Database
 
-SQLite at `~/.slack-search/messages.db`. Key tables:
+SQLite at `~/.slack-search/messages.db`:
 
 ```
 messages  (ts, channel_id, user_id, username, text, timestamp, thread_ts, reply_count)
@@ -165,3 +101,7 @@ channels  (id, name, subscribed)
 users     (id, name, real_name, display_name)
 files     (id, ts, channel_id, name, mimetype, url, local_path)
 ```
+
+## Python version
+
+The `python/` directory contains the original Streamlit-based implementation, used for prototyping. The Go binary is the primary tool.
