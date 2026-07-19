@@ -102,13 +102,38 @@ Open http://localhost:8088. Features:
 
 ## MCP Server
 
-For use with Claude Code, Cursor, or other MCP clients:
+For use with Claude Code, Cursor, or other MCP clients.
 
-```bash
-slack-search mcp
+### Cursor / Claude Desktop
+
+Add to `~/.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "slack-search": {
+      "command": "slack-search",
+      "args": ["mcp"]
+    }
+  }
+}
 ```
 
-Exposes grep, search, and channel listing as MCP tools.
+### Claude Code
+
+```bash
+claude mcp add slack-search -- slack-search mcp
+```
+
+### Available tools
+
+| Tool | Description |
+|------|-------------|
+| `slack_grep` | Search messages by keyword or regex, with channel/person/date filters |
+| `slack_sql` | Execute raw SQL against the archive (read-only, SQLite) |
+| `slack_thread` | Fetch all messages in a thread by parent timestamp |
+| `slack_channels` | List subscribed channels in the archive |
+| `slack_schema` | Get DB schema, useful joins, and SQLite date function cheatsheet |
 
 ## Python version
 
