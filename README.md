@@ -100,13 +100,15 @@ Open http://localhost:8088. Features:
 - Message highlighting and "Open in Slack" permalinks
 - LLM provider selection (RHT models.corp, local LM Studio)
 
-## MCP Server
+## AI Agent Integration
 
-For use with Claude Code, Cursor, or other MCP clients.
+Two ways to give an AI agent access to your Slack archive:
 
-### Cursor / Claude Desktop
+### Option A: MCP Server (recommended for Cursor / Claude Desktop)
 
-Add to `~/.cursor/mcp.json`:
+Structured tool calls — the agent discovers tools automatically.
+
+**Cursor / Claude Desktop** — add to `~/.cursor/mcp.json`:
 
 ```json
 {
@@ -119,13 +121,13 @@ Add to `~/.cursor/mcp.json`:
 }
 ```
 
-### Claude Code
+**Claude Code:**
 
 ```bash
 claude mcp add slack-search -- slack-search mcp
 ```
 
-### Available tools
+**Available tools:**
 
 | Tool | Description |
 |------|-------------|
@@ -134,6 +136,18 @@ claude mcp add slack-search -- slack-search mcp
 | `slack_thread` | Fetch all messages in a thread by parent timestamp |
 | `slack_channels` | List subscribed channels in the archive |
 | `slack_schema` | Get DB schema, useful joins, and SQLite date function cheatsheet |
+
+### Option B: Skill file (recommended for Claude Code)
+
+Copy [`docs/slack-search-skill.md`](docs/slack-search-skill.md) into your project's `.claude/commands/` directory. The agent runs the Go CLI via Bash tool calls — no MCP protocol needed, works everywhere.
+
+```bash
+cp docs/slack-search-skill.md /path/to/your-project/.claude/commands/slack-search.md
+```
+
+Then invoke as `/slack-search <your question>` in Claude Code.
+
+The skill includes the full CLI reference, database schema, SQLite dialect gotchas, and recommended query workflows.
 
 ## Python version
 
