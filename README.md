@@ -2,7 +2,7 @@
 
 Local Slack archive with fast search. Download channels, search with SQL, regex, or natural language — all offline.
 
-![Web UI](docs/web-ui-example.png)
+![Web UI](docs/web-ui-go.png)
 
 ## Install
 
@@ -108,7 +108,7 @@ Exposes grep, search, and channel listing as MCP tools.
 
 ## Python version
 
-The original Python implementation (Streamlit UI, `uv run` commands) is in the `python/` directory. The Go binary is the primary tool — it's faster, self-contained, and includes the web UI.
+The original Python implementation (Streamlit UI, `uv run` commands) is in the `python/` directory. Used for prototyping new features. The Go binary is the primary tool — it's faster, self-contained, and includes the web UI.
 
 ## Database
 
