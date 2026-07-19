@@ -58,6 +58,8 @@ Logs: `tail -f /tmp/slack-refresh.log`
 
 ### grep — fast text search
 
+![grep output](docs/grep-output.png)
+
 ```bash
 slack-search grep -F "out of memory"                          # literal string
 slack-search grep -E "error|warning" -c cost-mgmt-dev         # regex in a channel
