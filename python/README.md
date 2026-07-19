@@ -98,6 +98,7 @@ The web UI exposes this as the **🔍 Slack Search** tab.
 
 | Provider | How to configure |
 |---|---|
+| **LiteMaaS** | Set `LITE_MAAS_KEY` and `LITE_MAAS_BASE_URL` in `.env`. Base URL: `https://litemaas-litemaas.apps.prod.rhoai.rh-aiservices-bu.com/v1` |
 | **RHT models.corp** | Edit `.rht_models.json` (gitignored) with model keys |
 | **LM Studio** | Start LM Studio — detected automatically on `localhost:1234` |
 | **OpenCode.ai** | Set `OPENCODE_API_KEY` in `.env` |
