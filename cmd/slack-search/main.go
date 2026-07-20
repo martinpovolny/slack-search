@@ -98,7 +98,9 @@ Data directory: ~/.slack-search/`)
 func defaultDBPath() string {
 	home, _ := os.UserHomeDir()
 	dir := filepath.Join(home, ".slack-search")
-	os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		log.Fatalf("Cannot create data directory %s: %v", dir, err)
+	}
 	return filepath.Join(dir, "messages.db")
 }
 
@@ -117,7 +119,9 @@ func parseCredentials(fs *flag.FlagSet) (token, cookie, workspace, rawCookies, c
 	fs.StringVar(&tokenFlag, "token", os.Getenv("SLACK_TOKEN"), "Slack token (xoxp-/xoxb-/xoxc-)")
 	fs.StringVar(&cookieFlag, "cookie", os.Getenv("SLACK_COOKIE"), "Session cookie value (xoxc- only)")
 	fs.StringVar(&workspaceFlag, "workspace", os.Getenv("SLACK_WORKSPACE"), "Workspace hostname")
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
 
 	if curlFile != "" {
 		data, err := os.ReadFile(curlFile)
@@ -167,7 +171,7 @@ func cmdDownload(dbPath string) {
 	}
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
 
@@ -205,7 +209,7 @@ func cmdRefresh(dbPath string) {
 	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
 
@@ -241,7 +245,7 @@ func cmdSearch(dbPath string) {
 	query := os.Args[2]
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	result, err := search.RunSQL(conn, query)
 	if err != nil {
@@ -261,7 +265,9 @@ func cmdNLQ(dbPath string) {
 	var maxRows int
 	fs.StringVar(&modelName, "model", "", "RHT model name from .rht_models.json")
 	fs.IntVar(&maxRows, "max-rows", nlq.DefaultMaxRows, "Max rows sent to LLM for synthesis")
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
 
 	if fs.NArg() == 0 {
 		log.Fatal("Usage: slack-search nlq [--model NAME] \"your question\"")
@@ -283,7 +289,7 @@ func cmdNLQ(dbPath string) {
 	}
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	fmt.Printf("Asking: %s\n", question)
 	fmt.Printf("Model: %s\n\n", modelName)
@@ -321,14 +327,16 @@ func cmdGrep(dbPath string) {
 	fs.StringVar(&person, "p", "", "Person name (partial match)")
 	fs.IntVar(&limit, "n", 200, "Max results")
 	fs.BoolVar(&pager, "P", false, "Page output through less")
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
 
 	if fixedStr == "" && pattern == "" {
 		log.Fatal("Usage: slack-search grep -F \"string\" or -E \"regex\"")
 	}
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	sinceTS, err := timeparse.Parse(since)
 	if err != nil {
@@ -382,7 +390,9 @@ func cmdGrep(dbPath string) {
 		pr, pw, _ := os.Pipe()
 		pagerCmd.Stdin = pr
 		out = pw
-		pagerCmd.Start()
+		if err := pagerCmd.Start(); err != nil {
+			log.Fatalf("Failed to start pager: %v", err)
+		}
 	}
 
 	const (
@@ -406,17 +416,17 @@ func cmdGrep(dbPath string) {
 				return colorRed + colorBold + m + colorReset
 			})
 		}
-		fmt.Fprintf(out, "%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
+		_, _ = fmt.Fprintf(out, "%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
 			colorDim, r.Time, colorReset,
 			colorCyan, r.Channel, colorReset,
 			colorYellow, r.Author, colorReset,
 			prefix, text)
 	}
-	fmt.Fprintf(out, "\n%d result(s)\n", len(results))
+	_, _ = fmt.Fprintf(out, "\n%d result(s)\n", len(results))
 
 	if pagerCmd != nil {
-		out.Close()
-		pagerCmd.Wait()
+		_ = out.Close()
+		_ = pagerCmd.Wait()
 	}
 }
 
@@ -433,7 +443,7 @@ func cmdLiveSearch(dbPath string) {
 	query := strings.Join(fs.Args(), " ")
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
 
@@ -467,7 +477,7 @@ func cmdLiveSearch(dbPath string) {
 	for _, r := range results {
 		text := format.ResolveMentions(r.Text, userMap)
 		text = format.LinkifyJira(text, cfg.JiraURL, jiraRe)
-		fmt.Fprintf(os.Stdout, "%s[%s]%s %s#%s%s %s%s%s: %s\n",
+		_, _ = fmt.Fprintf(os.Stdout, "%s[%s]%s %s#%s%s %s%s%s: %s\n",
 			colorDim, r.Time, colorReset,
 			colorCyan, r.Channel, colorReset,
 			colorYellow, r.Author, colorReset,
@@ -489,7 +499,9 @@ func cmdEval(dbPath string) {
 	fs.StringVar(&modelName, "model", "", "RHT model name")
 	fs.StringVar(&testDir, "tests", "tests", "Directory with test case JSON files")
 	fs.StringVar(&resultsDir, "results", "tests/results", "Directory for result output")
-	fs.Parse(os.Args[2:])
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
 
 	config, err := nlq.LoadRHTConfig()
 	if err != nil {
@@ -513,7 +525,7 @@ func cmdEval(dbPath string) {
 	}
 
 	conn := openDB(dbPath)
-	defer conn.Close()
+	defer conn.Close() //nolint:errcheck
 
 	fmt.Printf("Running %d tests with model %s…\n\n", len(tests), modelName)
 	results := eval.RunEval(conn, tests, baseURL, apiKey, apiModelID)
@@ -540,7 +552,9 @@ func cmdServe(dbPath string) {
 	serveFlags.BoolVar(&noRefresh, "no-refresh", false, "Disable background refresh")
 	serveFlags.IntVar(&refreshInterval, "refresh-interval", 30, "Background refresh interval in minutes")
 	serveFlags.IntVar(&lookback, "lookback", 7, "Thread catchup lookback in days")
-	serveFlags.Parse(os.Args[2:])
+	if err := serveFlags.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
 
 	conn := openDB(dbPath)
 

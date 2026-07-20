@@ -77,7 +77,7 @@ func BuildUserMap(db *sql.DB, uids []string) map[string]string {
 	if err != nil {
 		return nil
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	m := make(map[string]string)
 	for rows.Next() {

@@ -60,16 +60,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.mux.ServeHTTP(w, r)
 }
 
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen]
-}
-
 func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.WriteHeader(code)
-	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
 func (h *Handler) handleChannels(w http.ResponseWriter, r *http.Request) {
@@ -78,7 +71,7 @@ func (h *Handler) handleChannels(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 500)
 		return
 	}
-	json.NewEncoder(w).Encode(channels)
+	_ = json.NewEncoder(w).Encode(channels)
 }
 
 func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
@@ -92,7 +85,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *Handler) handleSchema(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +157,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 
 	// Save user message to conversation
 	if req.ConversationID != "" && h.convDB != nil {
-		db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "", "", "")
+		_ = db.AppendConvMessage(h.convDB, req.ConversationID, "user", req.Question, "", "", "")
 	}
 
 	queryStart := time.Now()
@@ -199,7 +192,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 			meta["error"] = result.Error
 		}
 		metaJSON, _ := json.Marshal(meta)
-		db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText, resultJSON, string(metaJSON))
+		_ = db.AppendConvMessage(h.convDB, req.ConversationID, "assistant", content, sqlText, resultJSON, string(metaJSON))
 
 		// Auto-title on first exchange — ask the LLM for a short title
 		convMsgs, _ := db.LoadConvMessages(h.convDB, req.ConversationID)
@@ -209,7 +202,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 			if title, err := nlq.ChatComplete(baseURL, apiKey, apiModelID, titlePrompt, titleQ); err == nil {
 				title = strings.TrimSpace(title)
 				if len(title) > 0 && len(title) < 80 {
-					db.RenameConversation(h.convDB, req.ConversationID, title)
+					_ = db.RenameConversation(h.convDB, req.ConversationID, title)
 				}
 			}
 		}

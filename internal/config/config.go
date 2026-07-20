@@ -23,6 +23,6 @@ func Load() Config {
 		return Config{}
 	}
 	var c Config
-	json.Unmarshal(data, &c)
+	_ = json.Unmarshal(data, &c)
 	return c
 }

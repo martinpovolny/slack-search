@@ -54,7 +54,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			} `json:"user"`
 		}
 		if json.Unmarshal(data, &resp) == nil {
-			db.UpsertUser(conn, resp.User.ID, resp.User.Name, resp.User.Profile.RealName, resp.User.Profile.DisplayName)
+			_ = db.UpsertUser(conn, resp.User.ID, resp.User.Name, resp.User.Profile.RealName, resp.User.Profile.DisplayName)
 		}
 	}
 
@@ -75,9 +75,9 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			// Check if thread grew since last download
 			if apiReplyCount > 0 {
 				var storedRC int
-				conn.QueryRow("SELECT reply_count FROM messages WHERE ts=? AND channel_id=?", ts, channelID).Scan(&storedRC)
+				_ = conn.QueryRow("SELECT reply_count FROM messages WHERE ts=? AND channel_id=?", ts, channelID).Scan(&storedRC)
 				if apiReplyCount > storedRC {
-					conn.Exec("UPDATE messages SET reply_count=? WHERE ts=? AND channel_id=?", apiReplyCount, ts, channelID)
+					_, _ = conn.Exec("UPDATE messages SET reply_count=? WHERE ts=? AND channel_id=?", apiReplyCount, ts, channelID)
 					return false, true
 				}
 			}
@@ -215,7 +215,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 
 	// Update download state
 	if firstTS != "" && lastTS != "" {
-		db.SetDownloadState(conn, channelID, firstTS, lastTS)
+		_ = db.SetDownloadState(conn, channelID, firstTS, lastTS)
 	}
 
 	return newCount, nil
@@ -365,7 +365,7 @@ func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) 
 
 	for _, t := range threads {
 		var actual int
-		conn.QueryRow(
+		_ = conn.QueryRow(
 			"SELECT count(*) FROM messages WHERE thread_ts=? AND channel_id=? AND ts!=?",
 			t.ts, t.channelID, t.ts,
 		).Scan(&actual)

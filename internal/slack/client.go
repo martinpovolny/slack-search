@@ -96,7 +96,7 @@ func (c *Client) post(method string, params map[string]string) (json.RawMessage,
 		}
 
 		body, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if err != nil {
 			return nil, fmt.Errorf("slack %s: read body: %w", method, err)
 		}

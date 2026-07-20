@@ -69,13 +69,13 @@ func LiveSearch(conn *sql.DB, client *Client, query string, limit int) ([]Search
 		if strings.HasPrefix(m.Channel.ID, "D") && (strings.HasPrefix(channelName, "U") || channelName == m.Channel.ID) {
 			if strings.HasPrefix(channelName, "U") {
 				var realName string
-				conn.QueryRow("SELECT real_name FROM users WHERE id=?", channelName).Scan(&realName)
+				_ = conn.QueryRow("SELECT real_name FROM users WHERE id=?", channelName).Scan(&realName)
 				if realName != "" {
 					channelName = "DM: " + realName
 				}
 			}
 		}
-		db.UpsertChannel(conn, m.Channel.ID, channelName)
+		_ = db.UpsertChannel(conn, m.Channel.ID, channelName)
 
 		tsFloat, _ := strconv.ParseFloat(m.TS, 64)
 		rawJSON, _ := json.Marshal(m)
@@ -96,7 +96,7 @@ func LiveSearch(conn *sql.DB, client *Client, query string, limit int) ([]Search
 		ts, _ := strconv.ParseFloat(m.TS, 64)
 		timeStr := ""
 		if ts > 0 {
-			timeStr = fmt.Sprintf("%s", strings.Split(m.TS, ".")[0])
+			timeStr = strings.Split(m.TS, ".")[0]
 		}
 
 		results = append(results, SearchResult{

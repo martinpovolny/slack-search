@@ -19,7 +19,7 @@ func RunSQL(db *sql.DB, query string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	cols, err := rows.Columns()
 	if err != nil {
@@ -168,7 +168,7 @@ func Grep(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck
 
 	var results []GrepResult
 	for rows.Next() {

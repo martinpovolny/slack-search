@@ -218,7 +218,7 @@ func ChatComplete(baseURL, apiKey, model, systemPrompt, userMessage string) (str
 	if err != nil {
 		return "", fmt.Errorf("LLM request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {

@@ -135,7 +135,9 @@ func RunEval(db *sql.DB, tests []Test, baseURL, apiKey, model string) []TestResu
 
 // SaveResults writes eval results to a JSON file.
 func SaveResults(results []TestResult, dir string) (string, error) {
-	os.MkdirAll(dir, 0o755)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("create results dir %s: %w", dir, err)
+	}
 	ts := time.Now().Format("2006-01-02T15-04-05")
 	path := filepath.Join(dir, fmt.Sprintf("eval-%s.json", ts))
 	data, err := json.MarshalIndent(results, "", "  ")

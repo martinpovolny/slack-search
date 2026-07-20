@@ -43,7 +43,7 @@ func OpenConversationsDB(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("open conversations db %s: %w", path, err)
 	}
 	if _, err := db.Exec(convSchema); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("init conversations schema: %w", err)
 	}
 	migrateConvDB(db)
@@ -52,10 +52,10 @@ func OpenConversationsDB(path string) (*sql.DB, error) {
 
 func migrateConvDB(db *sql.DB) {
 	if !hasCol(db, "result_json") {
-		db.Exec("ALTER TABLE messages ADD COLUMN result_json TEXT")
+		_, _ = db.Exec("ALTER TABLE messages ADD COLUMN result_json TEXT")
 	}
 	if !hasCol(db, "metadata") {
-		db.Exec("ALTER TABLE messages ADD COLUMN metadata TEXT")
+		_, _ = db.Exec("ALTER TABLE messages ADD COLUMN metadata TEXT")
 	}
 }
 
@@ -71,7 +71,7 @@ func hasCol(db *sql.DB, col string) bool {
 		var notnull int
 		var dflt sql.NullString
 		var pk int
-		rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
+		_ = rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk)
 		if name == col {
 			return true
 		}

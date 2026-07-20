@@ -75,11 +75,11 @@ func Open(path string) (*sql.DB, error) {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
 	if _, err := db.Exec(schema); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("init schema: %w", err)
 	}
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
 	return db, nil
