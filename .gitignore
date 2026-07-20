@@ -34,3 +34,4 @@ README.local.md
 .playwright-mcp/
 .claude/settings.local.json
 python/tests/results/
+slack-search
