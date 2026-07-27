@@ -23,6 +23,7 @@ func Serve(db *sql.DB) error {
 	s.AddTool(toolThread(), handleThread(db))
 	s.AddTool(toolChannels(), handleChannels(db))
 	s.AddTool(toolSchema(), handleSchema(db))
+	s.AddTool(toolBookmarks(), handleBookmarks(db))
 
 	return server.ServeStdio(s)
 }
@@ -277,5 +278,70 @@ SQLite gotchas:
   - Mentions in text are encoded as <@UXXXXXXX>`
 
 		return mcp.NewToolResultText(schema), nil
+	}
+}
+
+// --- slack_bookmarks ---
+
+func toolBookmarks() mcp.Tool {
+	return mcp.NewTool("slack_bookmarks",
+		mcp.WithDescription("List bookmarks from subscribed Slack channels. Returns titles, links, and associated channels."),
+		mcp.WithString("channel", mcp.Description("Filter by channel name (optional)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+	)
+}
+
+func handleBookmarks(db *sql.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		channel, _ := req.GetArguments()["channel"].(string)
+
+		query := `SELECT b.id, b.channel_id, c.name as channel_name, b.title, b.link, b.type, b.emoji,
+		          datetime(b.created_at, 'unixepoch') as created
+		          FROM bookmarks b JOIN channels c ON b.channel_id = c.id`
+		var args []interface{}
+		if channel != "" {
+			query += " WHERE c.name = ?"
+			args = append(args, channel)
+		}
+		query += " ORDER BY c.name, b.title"
+
+		rows, err := db.Query(query, args...)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
+		}
+		defer rows.Close() //nolint:errcheck
+
+		type bookmark struct {
+			ID          string `json:"id"`
+			ChannelID   string `json:"channel_id"`
+			ChannelName string `json:"channel_name"`
+			Title       string `json:"title"`
+			Link        string `json:"link"`
+			Type        string `json:"type"`
+			Emoji       string `json:"emoji"`
+			Created     string `json:"created"`
+		}
+		var bookmarks []bookmark
+		for rows.Next() {
+			var bm bookmark
+			var title, link, typ, emoji, created sql.NullString
+			if err := rows.Scan(&bm.ID, &bm.ChannelID, &bm.ChannelName, &title, &link, &typ, &emoji, &created); err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("scan error: %v", err)), nil
+			}
+			bm.Title = title.String
+			bm.Link = link.String
+			bm.Type = typ.String
+			bm.Emoji = emoji.String
+			bm.Created = created.String
+			bookmarks = append(bookmarks, bm)
+		}
+
+		if len(bookmarks) == 0 {
+			return mcp.NewToolResultText("No bookmarks found."), nil
+		}
+
+		data, _ := json.MarshalIndent(bookmarks, "", "  ")
+		return mcp.NewToolResultText(string(data)), nil
 	}
 }

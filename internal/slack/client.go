@@ -169,6 +169,11 @@ func (c *Client) UsersInfo(userID string) (json.RawMessage, error) {
 	return c.post("users.info", map[string]string{"user": userID})
 }
 
+// BookmarksList returns bookmarks for a channel.
+func (c *Client) BookmarksList(channelID string) (json.RawMessage, error) {
+	return c.post("bookmarks.list", map[string]string{"channel": channelID})
+}
+
 // SearchMessages performs a Slack search.
 func (c *Client) SearchMessages(query string, count, page int) (json.RawMessage, error) {
 	return c.post("search.messages", map[string]string{

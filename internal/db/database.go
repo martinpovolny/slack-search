@@ -67,6 +67,17 @@ CREATE TABLE IF NOT EXISTS download_state (
     latest_ts       TEXT,
     oldest_ts       TEXT
 );
+
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id            TEXT PRIMARY KEY,
+    channel_id    TEXT NOT NULL,
+    title         TEXT,
+    link          TEXT,
+    type          TEXT,
+    emoji         TEXT,
+    created_at    REAL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id)
+);
 `
 
 func Open(path string) (*sql.DB, error) {
@@ -318,6 +329,30 @@ func Stats(db *sql.DB) (messageCount int, channelCount int, oldestMsg, newestMsg
 		FROM messages
 	`).Scan(&messageCount, &channelCount, &oldestMsg, &newestMsg)
 	return
+}
+
+// Bookmark represents a Slack channel bookmark.
+type Bookmark struct {
+	ID        string
+	ChannelID string
+	Title     string
+	Link      string
+	Type      string
+	Emoji     string
+	CreatedAt float64
+}
+
+// InsertBookmark stores a bookmark (upserts on conflict).
+func InsertBookmark(db *sql.DB, b Bookmark) error {
+	_, err := db.Exec(
+		`INSERT OR REPLACE INTO bookmarks(id, channel_id, title, link, type, emoji, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		b.ID, b.ChannelID,
+		nullStr(b.Title), nullStr(b.Link),
+		nullStr(b.Type), nullStr(b.Emoji),
+		b.CreatedAt,
+	)
+	return err
 }
 
 func nullStr(s string) interface{} {

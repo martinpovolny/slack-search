@@ -59,6 +59,8 @@ func main() {
 		cmdLiveSearch(dbPath)
 	case "mcp":
 		cmdMCP(dbPath)
+	case "bookmark-download":
+		cmdBookmarkDownload(dbPath)
 	case "eval":
 		cmdEval(dbPath)
 	case "serve":
@@ -86,6 +88,7 @@ Commands:
   grep        Search messages by text or regex
   live-search Query Slack's search API and cache results locally
   mcp         Start MCP server on stdio (for Claude Code, Cursor, etc.)
+  bookmark-download   Download bookmarks from subscribed channels
   eval        Run NLQ evaluation test suite
   serve       Start the web UI server
 
@@ -235,6 +238,25 @@ func cmdRefresh(dbPath string) {
 		} else if catchupCount > 0 {
 			fmt.Printf("Thread catchup: %d new reply(ies) from last %d day(s).\n", catchupCount, lookback)
 		}
+	}
+}
+
+func cmdBookmarkDownload(dbPath string) {
+	fs := flag.NewFlagSet("bookmark-download", flag.ExitOnError)
+	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
+
+	conn := openDB(dbPath)
+	defer conn.Close() //nolint:errcheck
+
+	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
+
+	_, err := download.DownloadBookmarks(conn, client)
+	if slackclient.IsAuthError(err) {
+		fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
+		os.Exit(2)
+	}
+	if err != nil {
+		log.Fatalf("Error: %v", err)
 	}
 }
 
