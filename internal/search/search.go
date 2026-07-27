@@ -54,12 +54,14 @@ func SchemaDescription() string {
   users:     id (PK), name, real_name, display_name
   messages:  ts, channel_id (PK), user_id, username, text, timestamp, thread_ts, reply_count, raw_json
   files:     id (PK), ts, channel_id, name, mimetype, url, local_path
+  bookmarks: id (PK), channel_id, title, link, type, emoji, created_at
   download_state: channel_id (PK), latest_ts, oldest_ts
 
 Useful joins:
   messages m JOIN users u ON m.user_id = u.id
   messages m JOIN channels c ON m.channel_id = c.id
   files f ON f.ts = m.ts AND f.channel_id = m.channel_id
+  bookmarks b JOIN channels c ON b.channel_id = c.id
 
 Date functions:
   datetime(timestamp, 'unixepoch')  — human-readable time
@@ -107,7 +109,7 @@ func Grep(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 		if _, err := regexp.Compile("(?i)" + opts.Pattern); err != nil {
 			return nil, fmt.Errorf("invalid regex: %w", err)
 		}
-		where = append(where, "m.text REGEXP ?")
+		where = append(where, "m.text IS NOT NULL AND m.text REGEXP ?")
 		args = append(args, opts.Pattern)
 	}
 
