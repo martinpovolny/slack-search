@@ -61,6 +61,8 @@ func main() {
 		cmdMCP(dbPath)
 	case "bookmark-download":
 		cmdBookmarkDownload(dbPath)
+	case "canvas-download":
+		cmdCanvasDownload(dbPath)
 	case "eval":
 		cmdEval(dbPath)
 	case "serve":
@@ -89,6 +91,7 @@ Commands:
   live-search Query Slack's search API and cache results locally
   mcp         Start MCP server on stdio (for Claude Code, Cursor, etc.)
   bookmark-download   Download bookmarks from subscribed channels
+  canvas-download     Download canvases from subscribed channels
   eval        Run NLQ evaluation test suite
   serve       Start the web UI server
 
@@ -251,6 +254,25 @@ func cmdBookmarkDownload(dbPath string) {
 	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
 
 	_, err := download.DownloadBookmarks(conn, client)
+	if slackclient.IsAuthError(err) {
+		fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
+		os.Exit(2)
+	}
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+}
+
+func cmdCanvasDownload(dbPath string) {
+	fs := flag.NewFlagSet("canvas-download", flag.ExitOnError)
+	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
+
+	conn := openDB(dbPath)
+	defer conn.Close() //nolint:errcheck
+
+	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
+
+	_, err := download.DownloadCanvases(conn, client)
 	if slackclient.IsAuthError(err) {
 		fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
 		os.Exit(2)

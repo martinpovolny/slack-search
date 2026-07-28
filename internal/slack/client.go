@@ -182,3 +182,58 @@ func (c *Client) SearchMessages(query string, count, page int) (json.RawMessage,
 		"page":  strconv.Itoa(page),
 	})
 }
+
+// QuipLookupThreadIds resolves file IDs to quip thread IDs.
+func (c *Client) QuipLookupThreadIds(fileIDs string) (json.RawMessage, error) {
+	return c.post("quip.lookupThreadIds", map[string]string{"file_ids": fileIDs})
+}
+
+// FetchCanvas fetches raw canvas content from the internal Quip endpoint.
+// This is NOT an /api/ call — it posts to canvas/-/load-data/editor/1.
+func (c *Client) FetchCanvas(quipID string) ([]byte, error) {
+	c.throttle()
+
+	requestBinary := BuildCanvasRequestBinary(quipID)
+
+	// baseURL is https://{workspace}/api — strip /api to get workspace root
+	workspaceURL := strings.TrimSuffix(c.baseURL, "/api")
+	canvasURL := workspaceURL + "/canvas/-/load-data/editor/1"
+
+	form := url.Values{
+		"token":            {c.token},
+		"request_binary":   {requestBinary},
+		"_resource_bundle": {"collab_controller"},
+		"_version":         {"10"},
+	}
+
+	req, err := http.NewRequest("POST", canvasURL, strings.NewReader(form.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+	if c.cookies != "" {
+		req.Header.Set("Cookie", c.cookies)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("canvas fetch: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("canvas fetch: read body: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("canvas fetch: HTTP %d", resp.StatusCode)
+	}
+
+	if len(body) <= 100 {
+		return nil, fmt.Errorf("canvas fetch: response too small (%d bytes)", len(body))
+	}
+
+	return body, nil
+}

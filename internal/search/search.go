@@ -55,6 +55,7 @@ func SchemaDescription() string {
   messages:  ts, channel_id (PK), user_id, username, text, timestamp, thread_ts, reply_count, raw_json
   files:     id (PK), ts, channel_id, name, mimetype, url, local_path
   bookmarks: id (PK), channel_id, title, link, type, emoji, created_at
+  canvases:  file_id (PK), channel_id, quip_id, title, content_text, content_html, updated_at
   download_state: channel_id (PK), latest_ts, oldest_ts
 
 Useful joins:
@@ -62,6 +63,7 @@ Useful joins:
   messages m JOIN channels c ON m.channel_id = c.id
   files f ON f.ts = m.ts AND f.channel_id = m.channel_id
   bookmarks b JOIN channels c ON b.channel_id = c.id
+  canvases cv JOIN channels c ON cv.channel_id = c.id
 
 Date functions:
   datetime(timestamp, 'unixepoch')  — human-readable time

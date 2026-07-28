@@ -10,6 +10,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/format"
 	"github.com/martinpovolny/slack-search/internal/search"
 )
@@ -24,6 +25,7 @@ func Serve(db *sql.DB) error {
 	s.AddTool(toolChannels(), handleChannels(db))
 	s.AddTool(toolSchema(), handleSchema(db))
 	s.AddTool(toolBookmarks(), handleBookmarks(db))
+	s.AddTool(toolCanvases(), handleCanvases(db))
 
 	return server.ServeStdio(s)
 }
@@ -292,7 +294,7 @@ func toolBookmarks() mcp.Tool {
 	)
 }
 
-func handleBookmarks(db *sql.DB) server.ToolHandlerFunc {
+func handleBookmarks(conn *sql.DB) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		channel, _ := req.GetArguments()["channel"].(string)
 
@@ -306,7 +308,7 @@ func handleBookmarks(db *sql.DB) server.ToolHandlerFunc {
 		}
 		query += " ORDER BY c.name, b.title"
 
-		rows, err := db.Query(query, args...)
+		rows, err := conn.Query(query, args...)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
 		}
@@ -342,6 +344,56 @@ func handleBookmarks(db *sql.DB) server.ToolHandlerFunc {
 		}
 
 		data, _ := json.MarshalIndent(bookmarks, "", "  ")
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+// --- slack_canvases ---
+
+func toolCanvases() mcp.Tool {
+	return mcp.NewTool("slack_canvases",
+		mcp.WithDescription("Search Slack canvases by channel or content. Returns titles and text content."),
+		mcp.WithString("channel", mcp.Description("Filter by channel name (optional)")),
+		mcp.WithString("query", mcp.Description("Search canvas content (optional)")),
+		mcp.WithReadOnlyHintAnnotation(true),
+		mcp.WithDestructiveHintAnnotation(false),
+	)
+}
+
+func handleCanvases(conn *sql.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		channel, _ := req.GetArguments()["channel"].(string)
+		query, _ := req.GetArguments()["query"].(string)
+
+		canvases, err := db.SearchCanvases(conn, channel, query)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
+		}
+
+		if len(canvases) == 0 {
+			return mcp.NewToolResultText("No canvases found."), nil
+		}
+
+		type canvasResult struct {
+			FileID      string `json:"file_id"`
+			ChannelID   string `json:"channel_id"`
+			QuipID      string `json:"quip_id"`
+			Title       string `json:"title"`
+			ContentText string `json:"content_text"`
+		}
+
+		results := make([]canvasResult, len(canvases))
+		for i, cv := range canvases {
+			results[i] = canvasResult{
+				FileID:      cv.FileID,
+				ChannelID:   cv.ChannelID,
+				QuipID:      cv.QuipID,
+				Title:       cv.Title,
+				ContentText: cv.ContentText,
+			}
+		}
+
+		data, _ := json.MarshalIndent(results, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
 	}
 }

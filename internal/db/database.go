@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -76,6 +77,17 @@ CREATE TABLE IF NOT EXISTS bookmarks (
     type          TEXT,
     emoji         TEXT,
     created_at    REAL,
+    FOREIGN KEY (channel_id) REFERENCES channels(id)
+);
+
+CREATE TABLE IF NOT EXISTS canvases (
+    file_id       TEXT PRIMARY KEY,
+    channel_id    TEXT NOT NULL,
+    quip_id       TEXT,
+    title         TEXT,
+    content_text  TEXT,
+    content_html  TEXT,
+    updated_at    REAL,
     FOREIGN KEY (channel_id) REFERENCES channels(id)
 );
 `
@@ -353,6 +365,73 @@ func InsertBookmark(db *sql.DB, b Bookmark) error {
 		b.CreatedAt,
 	)
 	return err
+}
+
+// Canvas represents a Slack canvas document.
+type Canvas struct {
+	FileID      string
+	ChannelID   string
+	QuipID      string
+	Title       string
+	ContentText string
+	ContentHTML string
+	UpdatedAt   float64
+}
+
+// InsertCanvas stores a canvas (upserts on conflict).
+func InsertCanvas(db *sql.DB, c Canvas) error {
+	_, err := db.Exec(
+		`INSERT OR REPLACE INTO canvases(file_id, channel_id, quip_id, title, content_text, content_html, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		c.FileID, c.ChannelID,
+		nullStr(c.QuipID), nullStr(c.Title),
+		nullStr(c.ContentText), nullStr(c.ContentHTML),
+		c.UpdatedAt,
+	)
+	return err
+}
+
+// SearchCanvases returns canvases, optionally filtered by channel name or content query.
+func SearchCanvases(db *sql.DB, channel, query string) ([]Canvas, error) {
+	q := `SELECT cv.file_id, cv.channel_id, cv.quip_id, cv.title, cv.content_text, cv.content_html, cv.updated_at
+	      FROM canvases cv JOIN channels c ON cv.channel_id = c.id`
+	var where []string
+	var args []interface{}
+	if channel != "" {
+		where = append(where, "c.name = ?")
+		args = append(args, channel)
+	}
+	if query != "" {
+		where = append(where, "(cv.title LIKE ? OR cv.content_text LIKE ?)")
+		args = append(args, "%"+query+"%", "%"+query+"%")
+	}
+	if len(where) > 0 {
+		q += " WHERE " + strings.Join(where, " AND ")
+	}
+	q += " ORDER BY c.name, cv.title"
+
+	rows, err := db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var results []Canvas
+	for rows.Next() {
+		var cv Canvas
+		var quipID, title, text, html sql.NullString
+		var updatedAt sql.NullFloat64
+		if err := rows.Scan(&cv.FileID, &cv.ChannelID, &quipID, &title, &text, &html, &updatedAt); err != nil {
+			return nil, err
+		}
+		cv.QuipID = quipID.String
+		cv.Title = title.String
+		cv.ContentText = text.String
+		cv.ContentHTML = html.String
+		cv.UpdatedAt = updatedAt.Float64
+		results = append(results, cv)
+	}
+	return results, rows.Err()
 }
 
 func nullStr(s string) interface{} {
