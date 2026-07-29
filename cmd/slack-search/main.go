@@ -242,6 +242,14 @@ func cmdRefresh(dbPath string) {
 			fmt.Printf("Thread catchup: %d new reply(ies) from last %d day(s).\n", catchupCount, lookback)
 		}
 	}
+
+	// Also refresh bookmarks and canvases
+	if _, err := download.DownloadBookmarks(conn, client); err != nil {
+		log.Printf("Bookmark refresh error: %v", err)
+	}
+	if _, err := download.DownloadCanvases(conn, client); err != nil {
+		log.Printf("Canvas refresh error: %v", err)
+	}
 }
 
 func cmdBookmarkDownload(dbPath string) {
@@ -362,7 +370,7 @@ func cmdGrep(dbPath string) {
 	var fixedStr, pattern, person, since, until string
 	var channels stringSlice
 	var limit int
-	var pager bool
+	var pager, all bool
 	fs.StringVar(&fixedStr, "F", "", "Fixed string search (case-insensitive)")
 	fs.StringVar(&pattern, "E", "", "Regex pattern search (case-insensitive)")
 	fs.Var(&channels, "c", "Channel name or ID (repeatable)")
@@ -371,6 +379,7 @@ func cmdGrep(dbPath string) {
 	fs.StringVar(&person, "p", "", "Person name (partial match)")
 	fs.IntVar(&limit, "n", 200, "Max results")
 	fs.BoolVar(&pager, "P", false, "Page output through less")
+	fs.BoolVar(&all, "a", false, "Also search canvases and bookmarks")
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		log.Fatal(err)
 	}
@@ -399,6 +408,7 @@ func cmdGrep(dbPath string) {
 		Until:       untilTS,
 		Person:      person,
 		Limit:       limit,
+		All:         all,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -448,19 +458,40 @@ func cmdGrep(dbPath string) {
 		colorRed    = "\033[91m"
 	)
 
+	const (
+		colorGreen = "\033[32m"
+		colorBlue  = "\033[34m"
+	)
+
 	for _, r := range results {
+		text := r.Text
+		typePrefix := ""
+		if all {
+			switch r.Type {
+			case "canvas":
+				typePrefix = colorGreen + "[canvas]" + colorReset + " "
+				if len(text) > 200 {
+					text = text[:200] + "…"
+				}
+			case "bookmark":
+				typePrefix = colorBlue + "[bookmark]" + colorReset + " "
+			}
+		}
+		if r.Type == "" || r.Type == "msg" {
+			text = format.ResolveMentions(text, userMap)
+			text = format.LinkifyJira(text, cfg.JiraURL, jiraRe)
+		}
 		prefix := ""
 		if r.ThreadTS != "" && r.ThreadTS != r.TS {
 			prefix = "↳ "
 		}
-		text := format.ResolveMentions(r.Text, userMap)
-		text = format.LinkifyJira(text, cfg.JiraURL, jiraRe)
 		if hlRe != nil {
 			text = hlRe.ReplaceAllStringFunc(text, func(m string) string {
 				return colorRed + colorBold + m + colorReset
 			})
 		}
-		_, _ = fmt.Fprintf(out, "%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
+		_, _ = fmt.Fprintf(out, "%s%s[%s]%s %s#%s%s %s%s%s: %s%s\n",
+			typePrefix,
 			colorDim, r.Time, colorReset,
 			colorCyan, r.Channel, colorReset,
 			colorYellow, r.Author, colorReset,
@@ -661,6 +692,7 @@ func cmdServe(dbPath string) {
 		go func() {
 			// Initial delay — let the server start first
 			time.Sleep(10 * time.Second)
+			refreshCount := 0
 			for {
 				func() {
 					defer func() {
@@ -679,6 +711,17 @@ func cmdServe(dbPath string) {
 							log.Printf("Thread catchup error: %v", err)
 						} else if count > 0 {
 							log.Printf("Thread catchup: %d new reply(ies)", count)
+						}
+					}
+					// Bookmarks on every refresh (cheap)
+					if _, err := download.DownloadBookmarks(conn, slackClient); err != nil {
+						log.Printf("Bookmark refresh error: %v", err)
+					}
+					// Canvases every 6th cycle (~6 hours with 30-min interval)
+					refreshCount++
+					if refreshCount%6 == 1 {
+						if _, err := download.DownloadCanvases(conn, slackClient); err != nil {
+							log.Printf("Canvas refresh error: %v", err)
 						}
 					}
 					log.Println("Background refresh done.")

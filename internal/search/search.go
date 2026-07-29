@@ -80,10 +80,12 @@ type GrepOptions struct {
 	Until       string   // unix timestamp
 	Person      string   // partial name match
 	Limit       int      // max results
+	All         bool     // also search canvases and bookmarks
 }
 
 // GrepResult holds one grep match.
 type GrepResult struct {
+	Type      string `json:"Type"`      // "msg", "canvas", "bookmark"
 	Time      string `json:"Time"`
 	Channel   string `json:"Channel"`
 	ChannelID string `json:"ChannelID"`
@@ -181,7 +183,164 @@ func Grep(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 		if err := rows.Scan(&r.Time, &r.Channel, &r.ChannelID, &r.Author, &r.Text, &r.TS, &threadTS); err != nil {
 			return nil, err
 		}
+		r.Type = "msg"
 		r.ThreadTS = threadTS.String
+		results = append(results, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if opts.All {
+		canvasResults, err := grepCanvases(db, opts)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, canvasResults...)
+
+		bookmarkResults, err := grepBookmarks(db, opts)
+		if err != nil {
+			return nil, err
+		}
+		results = append(results, bookmarkResults...)
+	}
+
+	return results, nil
+}
+
+func grepCanvases(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
+	var where []string
+	var args []interface{}
+
+	if opts.FixedString != "" {
+		where = append(where, "v.content_text LIKE ?")
+		args = append(args, "%"+opts.FixedString+"%")
+	}
+	if opts.Pattern != "" {
+		where = append(where, "v.content_text IS NOT NULL AND v.content_text REGEXP ?")
+		args = append(args, opts.Pattern)
+	}
+
+	if len(opts.Channels) > 0 {
+		placeholders := make([]string, len(opts.Channels))
+		for i, ch := range opts.Channels {
+			placeholders[i] = "?"
+			args = append(args, ch)
+		}
+		where = append(where, fmt.Sprintf("(c.name IN (%s) OR c.id IN (%s))",
+			strings.Join(placeholders, ","), strings.Join(placeholders, ",")))
+		for _, ch := range opts.Channels {
+			args = append(args, ch)
+		}
+	}
+
+	whereClause := ""
+	if len(where) > 0 {
+		whereClause = "WHERE " + strings.Join(where, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT datetime(v.updated_at, 'unixepoch') as time,
+		       c.name as channel,
+		       c.id as channel_id,
+		       v.title,
+		       v.content_text,
+		       v.file_id
+		FROM canvases v
+		JOIN channels c ON v.channel_id = c.id
+		%s
+		ORDER BY v.updated_at DESC
+		LIMIT ?
+	`, whereClause)
+	args = append(args, opts.Limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var results []GrepResult
+	for rows.Next() {
+		var r GrepResult
+		var title, content sql.NullString
+		if err := rows.Scan(&r.Time, &r.Channel, &r.ChannelID, &title, &content, &r.TS); err != nil {
+			return nil, err
+		}
+		r.Type = "canvas"
+		r.Author = title.String
+		r.Text = content.String
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func grepBookmarks(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
+	var where []string
+	var args []interface{}
+
+	searchTerm := opts.FixedString
+	if searchTerm == "" {
+		searchTerm = opts.Pattern
+	}
+
+	if opts.FixedString != "" {
+		where = append(where, "(b.title LIKE ? OR b.link LIKE ?)")
+		args = append(args, "%"+opts.FixedString+"%", "%"+opts.FixedString+"%")
+	}
+	if opts.Pattern != "" {
+		where = append(where, "((b.title IS NOT NULL AND b.title REGEXP ?) OR (b.link IS NOT NULL AND b.link REGEXP ?))")
+		args = append(args, opts.Pattern, opts.Pattern)
+	}
+
+	if len(opts.Channels) > 0 {
+		placeholders := make([]string, len(opts.Channels))
+		for i, ch := range opts.Channels {
+			placeholders[i] = "?"
+			args = append(args, ch)
+		}
+		where = append(where, fmt.Sprintf("(c.name IN (%s) OR c.id IN (%s))",
+			strings.Join(placeholders, ","), strings.Join(placeholders, ",")))
+		for _, ch := range opts.Channels {
+			args = append(args, ch)
+		}
+	}
+
+	whereClause := ""
+	if len(where) > 0 {
+		whereClause = "WHERE " + strings.Join(where, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT datetime(b.created_at, 'unixepoch') as time,
+		       c.name as channel,
+		       c.id as channel_id,
+		       b.title,
+		       COALESCE(b.link, ''),
+		       b.id
+		FROM bookmarks b
+		JOIN channels c ON b.channel_id = c.id
+		%s
+		ORDER BY b.created_at DESC
+		LIMIT ?
+	`, whereClause)
+	args = append(args, opts.Limit)
+
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close() //nolint:errcheck
+
+	var results []GrepResult
+	for rows.Next() {
+		var r GrepResult
+		var title sql.NullString
+		if err := rows.Scan(&r.Time, &r.Channel, &r.ChannelID, &title, &r.Text, &r.TS); err != nil {
+			return nil, err
+		}
+		r.Type = "bookmark"
+		r.Author = title.String
 		results = append(results, r)
 	}
 	return results, rows.Err()
