@@ -15,17 +15,17 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/martinpovolny/slack-search/internal/config"
-	"github.com/martinpovolny/slack-search/internal/mcpserver"
-	"github.com/martinpovolny/slack-search/internal/timeparse"
 	"github.com/martinpovolny/slack-search/internal/api"
+	"github.com/martinpovolny/slack-search/internal/config"
 	"github.com/martinpovolny/slack-search/internal/db"
 	"github.com/martinpovolny/slack-search/internal/download"
 	"github.com/martinpovolny/slack-search/internal/eval"
 	"github.com/martinpovolny/slack-search/internal/format"
+	"github.com/martinpovolny/slack-search/internal/mcpserver"
 	"github.com/martinpovolny/slack-search/internal/nlq"
 	"github.com/martinpovolny/slack-search/internal/search"
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
+	"github.com/martinpovolny/slack-search/internal/timeparse"
 	"github.com/martinpovolny/slack-search/internal/web"
 )
 
@@ -563,7 +563,19 @@ func cmdLiveSearch(dbPath string) {
 
 func cmdMCP(dbPath string) {
 	conn := openDB(dbPath)
-	if err := mcpserver.Serve(conn); err != nil {
+	defer conn.Close() //nolint:errcheck
+
+	var client *slackclient.Client
+	curlPath := filepath.Join(filepath.Dir(dbPath), ".curl")
+	if data, err := os.ReadFile(curlPath); err != nil {
+		log.Printf("Slack refresh tool disabled: cannot read %s: %v", curlPath, err)
+	} else if creds, err := slackclient.ParseCurl(string(data)); err != nil {
+		log.Printf("Slack refresh tool disabled: cannot parse %s: %v", curlPath, err)
+	} else {
+		client = slackclient.NewClient(creds.Token, creds.Cookie, creds.Workspace, creds.RawCookies)
+	}
+
+	if err := mcpserver.Serve(conn, client); err != nil {
 		log.Fatal(err)
 	}
 }

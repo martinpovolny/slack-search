@@ -85,7 +85,11 @@ On macOS, a launchd plist is included for hourly background refresh — see `com
 
 Claude Code: `claude mcp add slack-search -- slack-search mcp`
 
-Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`
+Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`, `slack_refresh_channel`
+
+`slack_refresh_channel` fetches the latest messages for one channel and then
+re-fetches its recent threads (seven days by default), so agents can repair a
+stale archive before searching it. It requires a valid `~/.slack-search/.curl`.
 
 ### Skill file (alternative)
 

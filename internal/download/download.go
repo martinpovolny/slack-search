@@ -17,6 +17,18 @@ type Options struct {
 	Since        string // Unix timestamp or empty
 }
 
+// repliesClient is the portion of the Slack client needed to fetch a thread.
+// Keeping this narrow lets thread reconciliation be exercised without Slack
+// credentials.
+type repliesClient interface {
+	ConversationsReplies(params map[string]string) (json.RawMessage, error)
+}
+
+type threadCatchupClient interface {
+	repliesClient
+	UsersInfo(userID string) (json.RawMessage, error)
+}
+
 // Download fetches messages from a Slack channel and stores them. Returns count of new messages.
 func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName string, opts Options) (int, error) {
 	if err := db.UpsertChannel(conn, channelID, channelName); err != nil {
@@ -152,8 +164,8 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		}
 
 		var resp struct {
-			Messages []map[string]interface{} `json:"messages"`
-			HasMore  bool                     `json:"has_more"`
+			Messages         []map[string]interface{} `json:"messages"`
+			HasMore          bool                     `json:"has_more"`
 			ResponseMetadata struct {
 				NextCursor string `json:"next_cursor"`
 			} `json:"response_metadata"`
@@ -221,7 +233,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 	return newCount, nil
 }
 
-func fetchReplies(conn *sql.DB, client *slackclient.Client, channelID, threadTS string, store func(map[string]interface{}) (bool, bool)) {
+func fetchReplies(conn *sql.DB, client repliesClient, channelID, threadTS string, store func(map[string]interface{}) (bool, bool)) {
 	cursor := ""
 	firstPage := true
 	for {
@@ -240,8 +252,8 @@ func fetchReplies(conn *sql.DB, client *slackclient.Client, channelID, threadTS 
 		}
 
 		var resp struct {
-			Messages []map[string]interface{} `json:"messages"`
-			HasMore  bool                     `json:"has_more"`
+			Messages         []map[string]interface{} `json:"messages"`
+			HasMore          bool                     `json:"has_more"`
 			ResponseMetadata struct {
 				NextCursor string `json:"next_cursor"`
 			} `json:"response_metadata"`
@@ -252,7 +264,10 @@ func fetchReplies(conn *sql.DB, client *slackclient.Client, channelID, threadTS 
 
 		msgs := resp.Messages
 		if firstPage && len(msgs) > 0 {
-			msgs = msgs[1:] // skip parent on first page
+			// Re-store the parent so its reply count is refreshed from the
+			// authoritative thread response, then avoid counting it as a reply.
+			store(msgs[0])
+			msgs = msgs[1:]
 		}
 		firstPage = false
 
@@ -323,11 +338,28 @@ func ResolveChannel(client *slackclient.Client, channel string, conn *sql.DB, hi
 	return "", "", fmt.Errorf("channel '%s' not found — use the channel ID directly (e.g. C04476G1F7H)", channel)
 }
 
-// CatchupThreads re-checks threads within the lookback window for new replies.
-func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) (int, error) {
+// CatchupThreads re-fetches all subscribed threads within the lookback window.
+func CatchupThreads(conn *sql.DB, client threadCatchupClient, lookbackDays int) (int, error) {
+	return catchupThreads(conn, client, lookbackDays, "")
+}
+
+// CatchupChannelThreads re-fetches threads in one channel within the lookback
+// window. It is useful after an incremental channel refresh, where the cached
+// parent reply_count may otherwise hide a recently added reply.
+func CatchupChannelThreads(conn *sql.DB, client threadCatchupClient, channelID string, lookbackDays int) (int, error) {
+	if channelID == "" {
+		return 0, fmt.Errorf("channel ID is required")
+	}
+	return catchupThreads(conn, client, lookbackDays, channelID)
+}
+
+// catchupThreads re-fetches threaded parents instead of trusting reply_count.
+// A cached parent reply_count is only a snapshot from conversations.history;
+// it does not reliably change when a later reply is posted.
+func catchupThreads(conn *sql.DB, client threadCatchupClient, lookbackDays int, channelID string) (int, error) {
 	cutoff := float64(time.Now().Unix()) - float64(lookbackDays*86400)
 
-	rows, err := conn.Query(`
+	query := `
 		SELECT m.ts, m.channel_id, m.reply_count, c.name
 		FROM messages m
 		JOIN channels c ON m.channel_id = c.id
@@ -335,8 +367,15 @@ func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) 
 		  AND m.timestamp >= ?
 		  AND m.reply_count > 0
 		  AND (m.thread_ts IS NULL OR m.thread_ts = m.ts)
-		ORDER BY m.timestamp DESC
-	`, cutoff)
+	`
+	args := []interface{}{cutoff}
+	if channelID != "" {
+		query += " AND m.channel_id = ?"
+		args = append(args, channelID)
+	}
+	query += " ORDER BY m.timestamp DESC"
+
+	rows, err := conn.Query(query, args...)
 	if err != nil {
 		return 0, err
 	}
@@ -364,17 +403,7 @@ func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) 
 	newCount := 0
 
 	for _, t := range threads {
-		var actual int
-		_ = conn.QueryRow(
-			"SELECT count(*) FROM messages WHERE thread_ts=? AND channel_id=? AND ts!=?",
-			t.ts, t.channelID, t.ts,
-		).Scan(&actual)
-
-		if actual >= t.storedRC {
-			continue
-		}
-
-		fmt.Printf("  #%s thread %s: %d/%d replies, fetching…\n", t.channelName, t.ts, actual, t.storedRC)
+		fmt.Printf("  #%s thread %s: re-fetching (cached %d replies)…\n", t.channelName, t.ts, t.storedRC)
 
 		storeReply := func(msg map[string]interface{}) (bool, bool) {
 			ts, _ := msg["ts"].(string)
@@ -383,6 +412,15 @@ func CatchupThreads(conn *sql.DB, client *slackclient.Client, lookbackDays int) 
 			}
 			exists, _ := db.MessageExists(conn, ts, t.channelID)
 			if exists {
+				if ts == t.ts {
+					if rc, ok := msg["reply_count"].(float64); ok {
+						rawJSON, _ := json.Marshal(msg)
+						_, _ = conn.Exec(
+							"UPDATE messages SET reply_count=?, raw_json=? WHERE ts=? AND channel_id=?",
+							int(rc), rawJSON, ts, t.channelID,
+						)
+					}
+				}
 				return false, false
 			}
 			userID, _ := msg["user"].(string)

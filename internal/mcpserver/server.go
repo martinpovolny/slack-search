@@ -11,12 +11,14 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/martinpovolny/slack-search/internal/db"
+	"github.com/martinpovolny/slack-search/internal/download"
 	"github.com/martinpovolny/slack-search/internal/format"
 	"github.com/martinpovolny/slack-search/internal/search"
+	slackclient "github.com/martinpovolny/slack-search/internal/slack"
 )
 
 // Serve starts the MCP server on stdio.
-func Serve(db *sql.DB) error {
+func Serve(db *sql.DB, client *slackclient.Client) error {
 	s := server.NewMCPServer("slack-search", "1.0.0")
 
 	s.AddTool(toolGrep(), handleGrep(db))
@@ -26,8 +28,74 @@ func Serve(db *sql.DB) error {
 	s.AddTool(toolSchema(), handleSchema(db))
 	s.AddTool(toolBookmarks(), handleBookmarks(db))
 	s.AddTool(toolCanvases(), handleCanvases(db))
+	s.AddTool(toolRefreshChannel(), handleRefreshChannel(db, client))
 
 	return server.ServeStdio(s)
+}
+
+// --- slack_refresh_channel ---
+
+func toolRefreshChannel() mcp.Tool {
+	return mcp.NewTool("slack_refresh_channel",
+		mcp.WithDescription("Fetch the latest messages for one Slack channel into the local archive, then re-fetch recent threads to capture replies that arrived after the last index. Requires ~/.slack-search/.curl credentials."),
+		mcp.WithString("channel", mcp.Required(), mcp.Description("Channel name or ID to refresh")),
+		mcp.WithNumber("lookback_days", mcp.Description("Days of recent threads to re-fetch (default 7, maximum 30)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+	)
+}
+
+func handleRefreshChannel(conn *sql.DB, client *slackclient.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if client == nil {
+			return mcp.NewToolResultError("Slack credentials are unavailable. Add a valid ~/.slack-search/.curl and restart the MCP server."), nil
+		}
+
+		channel, _ := req.GetArguments()["channel"].(string)
+		if channel == "" {
+			return mcp.NewToolResultError("channel is required"), nil
+		}
+
+		lookbackDays := 7
+		if value, ok := req.GetArguments()["lookback_days"].(float64); ok {
+			lookbackDays = int(value)
+		}
+		if lookbackDays < 1 || lookbackDays > 30 {
+			return mcp.NewToolResultError("lookback_days must be between 1 and 30"), nil
+		}
+
+		channelID, channelName, err := download.ResolveChannel(client, channel, conn, "")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolve channel: %v", err)), nil
+		}
+
+		messageCount, err := download.Download(conn, client, channelID, channelName, download.Options{FetchThreads: true})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("refresh channel: %v", err)), nil
+		}
+		threadReplyCount, err := download.CatchupChannelThreads(conn, client, channelID, lookbackDays)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("refresh recent threads: %v", err)), nil
+		}
+
+		result := struct {
+			Channel          string `json:"channel"`
+			ChannelID        string `json:"channel_id"`
+			NewMessages      int    `json:"new_messages"`
+			NewThreadReplies int    `json:"new_thread_replies"`
+			LookbackDays     int    `json:"lookback_days"`
+		}{
+			Channel:          channelName,
+			ChannelID:        channelID,
+			NewMessages:      messageCount,
+			NewThreadReplies: threadReplyCount,
+			LookbackDays:     lookbackDays,
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(data)), nil
+	}
 }
 
 // --- slack_grep ---
