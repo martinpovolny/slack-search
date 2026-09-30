@@ -17,6 +17,60 @@ type Options struct {
 	Since        string // Unix timestamp or empty
 }
 
+// messageText returns the searchable text for a Slack message. Some Slack
+// integrations, including Alertmanager, put the useful content in an
+// attachment while leaving the top-level text empty.
+func messageText(msg map[string]interface{}) string {
+	var parts []string
+	appendText := func(value interface{}) {
+		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+			parts = append(parts, strings.TrimSpace(text))
+		}
+	}
+
+	appendText(msg["text"])
+	if attachments, ok := msg["attachments"].([]interface{}); ok {
+		for _, attachment := range attachments {
+			if item, ok := attachment.(map[string]interface{}); ok {
+				appendText(item["fallback"])
+				appendText(item["pretext"])
+				appendText(item["title"])
+				appendText(item["text"])
+				if fields, ok := item["fields"].([]interface{}); ok {
+					for _, field := range fields {
+						if value, ok := field.(map[string]interface{}); ok {
+							appendText(value["title"])
+							appendText(value["value"])
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Block Kit messages commonly carry text in nested objects. Walk only
+	// text-bearing keys so IDs and formatting metadata do not pollute search.
+	var appendBlocks func(interface{})
+	appendBlocks = func(value interface{}) {
+		switch value := value.(type) {
+		case []interface{}:
+			for _, item := range value {
+				appendBlocks(item)
+			}
+		case map[string]interface{}:
+			if kind, _ := value["type"].(string); kind == "text" || kind == "plain_text" || kind == "mrkdwn" {
+				appendText(value["text"])
+			}
+			for _, key := range []string{"blocks", "elements", "fields"} {
+				appendBlocks(value[key])
+			}
+		}
+	}
+	appendBlocks(msg["blocks"])
+
+	return strings.Join(parts, "\n")
+}
+
 // repliesClient is the portion of the Slack client needed to fetch a thread.
 // Keeping this narrow lets thread reconciliation be exercised without Slack
 // credentials.
@@ -76,6 +130,8 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		if ts == "" {
 			return false, false
 		}
+		text := messageText(msg)
+		rawJSON, _ := json.Marshal(msg)
 
 		apiReplyCount := 0
 		if rc, ok := msg["reply_count"].(float64); ok {
@@ -84,6 +140,15 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 
 		exists, _ := db.MessageExists(conn, ts, channelID)
 		if exists {
+			// live-search may have cached only a lightweight search result. A
+			// subsequent history download can contain the full attachment or
+			// block payload, so reconcile the richer representation.
+			if text != "" {
+				_, _ = conn.Exec(
+					"UPDATE messages SET text=?, raw_json=? WHERE ts=? AND channel_id=?",
+					text, rawJSON, ts, channelID,
+				)
+			}
 			// Check if thread grew since last download
 			if apiReplyCount > 0 {
 				var storedRC int
@@ -100,7 +165,6 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		cacheUser(userID)
 
 		username, _ := msg["username"].(string)
-		text, _ := msg["text"].(string)
 		threadTS, _ := msg["thread_ts"].(string)
 		replyCount := 0
 		if rc, ok := msg["reply_count"].(float64); ok {
@@ -108,8 +172,6 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		}
 
 		tsFloat, _ := strconv.ParseFloat(ts, 64)
-		rawJSON, _ := json.Marshal(msg)
-
 		inserted, err := db.InsertMessage(conn, db.Message{
 			TS:         ts,
 			ChannelID:  channelID,
@@ -179,11 +241,8 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 			if subtype == "channel_join" || subtype == "channel_leave" {
 				continue
 			}
-			if subtype == "bot_message" {
-				t, _ := msg["text"].(string)
-				if t == "" {
-					continue
-				}
+			if subtype == "bot_message" && messageText(msg) == "" {
+				continue
 			}
 
 			ts, _ := msg["ts"].(string)

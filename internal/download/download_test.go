@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,29 @@ import (
 type fakeThreadClient struct {
 	replies json.RawMessage
 	calls   int
+}
+
+func TestMessageTextIncludesAttachmentOnlyAlertContent(t *testing.T) {
+	msg := map[string]interface{}{
+		"subtype": "bot_message",
+		"text":    "",
+		"attachments": []interface{}{
+			map[string]interface{}{
+				"fallback": "[appsres11ue1]Alert: App-cost-upload-lag-not-decreasing-In-hccm [FIRING:1] Kafka lag for cost management uploads exceeded 25",
+				"fields": []interface{}{
+					map[string]interface{}{"title": "Environment", "value": "stage"},
+				},
+			},
+		},
+	}
+
+	text := messageText(msg)
+	if text == "" {
+		t.Fatal("attachment-only bot message produced no searchable text")
+	}
+	if want := "App-cost-upload-lag-not-decreasing-In-hccm"; !strings.Contains(text, want) {
+		t.Fatalf("message text %q does not contain %q", text, want)
+	}
 }
 
 func (c *fakeThreadClient) ConversationsReplies(map[string]string) (json.RawMessage, error) {
