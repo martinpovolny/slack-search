@@ -25,7 +25,8 @@ const schema = `
 CREATE TABLE IF NOT EXISTS channels (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    subscribed INTEGER NOT NULL DEFAULT 0
+    subscribed INTEGER NOT NULL DEFAULT 0,
+    member_names TEXT NOT NULL DEFAULT '[]'
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -124,6 +125,7 @@ func migrate(db *sql.DB) error {
 	defer rows.Close()
 
 	hasSubscribed := false
+	hasMemberNames := false
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -136,12 +138,20 @@ func migrate(db *sql.DB) error {
 		if name == "subscribed" {
 			hasSubscribed = true
 		}
+		if name == "member_names" {
+			hasMemberNames = true
+		}
 	}
 	if !hasSubscribed {
 		if _, err := db.Exec("ALTER TABLE channels ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 0"); err != nil {
 			return err
 		}
 		if _, err := db.Exec("UPDATE channels SET subscribed=1 WHERE id IN (SELECT channel_id FROM download_state)"); err != nil {
+			return err
+		}
+	}
+	if !hasMemberNames {
+		if _, err := db.Exec("ALTER TABLE channels ADD COLUMN member_names TEXT NOT NULL DEFAULT '[]'"); err != nil {
 			return err
 		}
 	}
@@ -155,6 +165,16 @@ func UpsertChannel(db *sql.DB, id, name string) error {
 		 ON CONFLICT(id) DO UPDATE SET name=excluded.name`,
 		id, name,
 	)
+	return err
+}
+
+// UpsertChannelMembers stores display names for DM/MPIM participants.
+func UpsertChannelMembers(db *sql.DB, id string, names []string) error {
+	data, err := json.Marshal(names)
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec("UPDATE channels SET member_names=? WHERE id=?", string(data), id)
 	return err
 }
 
@@ -305,14 +325,15 @@ func SubscribedChannels(db *sql.DB) ([]struct{ ID, Name string }, error) {
 
 // Channel holds channel info including subscription status.
 type Channel struct {
-	ID         string `json:"ID"`
-	Name       string `json:"Name"`
-	Subscribed bool   `json:"Subscribed"`
+	ID         string   `json:"ID"`
+	Name       string   `json:"Name"`
+	Subscribed bool     `json:"Subscribed"`
+	Members    []string `json:"Members,omitempty"`
 }
 
 // AllChannelsWithSubscribed returns all channels, subscribed first, then alphabetical.
 func AllChannelsWithSubscribed(db *sql.DB) ([]Channel, error) {
-	rows, err := db.Query("SELECT id, name, subscribed FROM channels ORDER BY subscribed DESC, name")
+	rows, err := db.Query("SELECT id, name, subscribed, member_names FROM channels ORDER BY subscribed DESC, name")
 	if err != nil {
 		return nil, err
 	}
@@ -322,10 +343,14 @@ func AllChannelsWithSubscribed(db *sql.DB) ([]Channel, error) {
 	for rows.Next() {
 		var ch Channel
 		var sub int
-		if err := rows.Scan(&ch.ID, &ch.Name, &sub); err != nil {
+		var memberNames string
+		if err := rows.Scan(&ch.ID, &ch.Name, &sub, &memberNames); err != nil {
 			return nil, err
 		}
 		ch.Subscribed = sub == 1
+		if memberNames != "" {
+			_ = json.Unmarshal([]byte(memberNames), &ch.Members)
+		}
 		channels = append(channels, ch)
 	}
 	return channels, rows.Err()

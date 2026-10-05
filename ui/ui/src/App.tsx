@@ -7,6 +7,7 @@ interface Channel {
   ID: string
   Name: string
   Subscribed: boolean
+  Members?: string[]
 }
 
 interface SearchResult {
@@ -58,6 +59,17 @@ function App() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  const channelLabel = (ch: Channel) => {
+    if (ch.Name) return ch.Name.startsWith('DM:') ? ch.Name : `#${ch.Name}`
+    if (ch.Members?.length) return `DM: ${ch.Members.join(', ')}`
+    return ch.ID
+  }
+
+  const channelTitle = (ch: Channel) => {
+    if (ch.Members?.length) return `Participants: ${ch.Members.join(', ')}`
+    return ch.Name || ch.ID
+  }
+
   return (
     <div className="flex h-screen bg-white">
       {/* Sidebar */}
@@ -82,8 +94,9 @@ function App() {
               <div
                 key={ch.ID}
                 onClick={ch.Subscribed ? () => { setBrowseChannel(ch.Name); setTab('browse') } : undefined}
+                title={channelTitle(ch)}
                 className={`text-xs truncate ${ch.Subscribed ? 'font-bold text-gray-800 cursor-pointer hover:text-blue-600' : 'text-gray-400'}`}
-              >#{ch.Name}</div>
+              >{channelLabel(ch)}</div>
             ))}
           </div>
         </div>

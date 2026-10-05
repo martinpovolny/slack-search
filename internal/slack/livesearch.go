@@ -58,24 +58,110 @@ func LiveSearch(conn *sql.DB, client *Client, query string, limit int) ([]Search
 
 	var results []SearchResult
 	newCount := 0
+	memberNamesCache := make(map[string][]string)
+	userNamesCache := make(map[string]string)
+
+	userDisplayName := func(userID string) string {
+		if userID == "" {
+			return ""
+		}
+		if name, ok := userNamesCache[userID]; ok {
+			return name
+		}
+		var realName, displayName, username string
+		_ = conn.QueryRow("SELECT real_name, display_name, name FROM users WHERE id=?", userID).Scan(&realName, &displayName, &username)
+		name := displayName
+		if name == "" {
+			name = realName
+		}
+		if name == "" {
+			name = username
+		}
+		if name == "" {
+			data, err := client.UsersInfo(userID)
+			if err == nil {
+				var resp struct {
+					User struct {
+						ID      string `json:"id"`
+						Name    string `json:"name"`
+						Profile struct {
+							RealName    string `json:"real_name"`
+							DisplayName string `json:"display_name"`
+						} `json:"profile"`
+					} `json:"user"`
+				}
+				if json.Unmarshal(data, &resp) == nil {
+					name = resp.User.Profile.DisplayName
+					if name == "" {
+						name = resp.User.Profile.RealName
+					}
+					if name == "" {
+						name = resp.User.Name
+					}
+					if resp.User.ID != "" {
+						_ = db.UpsertUser(conn, resp.User.ID, resp.User.Name, resp.User.Profile.RealName, resp.User.Profile.DisplayName)
+					}
+				}
+			}
+		}
+		if name == "" {
+			name = userID
+		}
+		userNamesCache[userID] = name
+		return name
+	}
+
+	conversationMembers := func(channelID string) []string {
+		if names, ok := memberNamesCache[channelID]; ok {
+			return names
+		}
+		var names []string
+		data, err := client.ConversationsInfo(channelID)
+		if err == nil {
+			var resp struct {
+				Channel struct {
+					Members []string `json:"members"`
+					User    string   `json:"user"`
+				} `json:"channel"`
+			}
+			if json.Unmarshal(data, &resp) == nil {
+				members := resp.Channel.Members
+				if len(members) == 0 && resp.Channel.User != "" {
+					members = []string{resp.Channel.User}
+				}
+				for _, memberID := range members {
+					if name := userDisplayName(memberID); name != "" {
+						names = append(names, name)
+					}
+				}
+			}
+		}
+		memberNamesCache[channelID] = names
+		return names
+	}
 
 	for _, m := range resp.Messages.Matches {
 		if len(results) >= limit {
 			break
 		}
 
-		// Cache in local DB — resolve DM channel names
+		// Cache in local DB — resolve DM and multi-person DM names.
 		channelName := m.Channel.Name
-		if strings.HasPrefix(m.Channel.ID, "D") && (strings.HasPrefix(channelName, "U") || channelName == m.Channel.ID) {
-			if strings.HasPrefix(channelName, "U") {
-				var realName string
-				_ = conn.QueryRow("SELECT real_name FROM users WHERE id=?", channelName).Scan(&realName)
-				if realName != "" {
-					channelName = "DM: " + realName
-				}
-			}
+		var memberNames []string
+		if strings.HasPrefix(m.Channel.ID, "G") {
+			memberNames = conversationMembers(m.Channel.ID)
+		} else if strings.HasPrefix(m.Channel.ID, "D") && strings.HasPrefix(channelName, "U") {
+			memberNames = []string{userDisplayName(channelName)}
+		} else if strings.HasPrefix(m.Channel.ID, "D") && (channelName == "" || channelName == m.Channel.ID) {
+			memberNames = conversationMembers(m.Channel.ID)
+		}
+		if len(memberNames) > 0 {
+			channelName = "DM: " + strings.Join(memberNames, ", ")
 		}
 		_ = db.UpsertChannel(conn, m.Channel.ID, channelName)
+		if len(memberNames) > 0 {
+			_ = db.UpsertChannelMembers(conn, m.Channel.ID, memberNames)
+		}
 
 		tsFloat, _ := strconv.ParseFloat(m.TS, 64)
 		rawJSON, _ := json.Marshal(m)
