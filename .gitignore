@@ -35,3 +35,6 @@ README.local.md
 .claude/settings.local.json
 python/tests/results/
 slack-search
+!cmd/slack-search/
+cmd/slack-search/*
+!cmd/slack-search/mcp_test.go

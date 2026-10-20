@@ -19,6 +19,20 @@ import (
 
 // Serve starts the MCP server on stdio.
 func Serve(db *sql.DB, client *slackclient.Client) error {
+	return server.ServeStdio(newServer(db, client))
+}
+
+// ServeHTTP starts the MCP server on Streamable HTTP.
+func ServeHTTP(db *sql.DB, client *slackclient.Client, addr string) error {
+	httpServer := server.NewStreamableHTTPServer(newServer(db, client), server.WithEndpointPath("/mcp"))
+	return serveHTTPStart(httpServer, addr)
+}
+
+var serveHTTPStart = func(httpServer *server.StreamableHTTPServer, addr string) error {
+	return httpServer.Start(addr)
+}
+
+func newServer(db *sql.DB, client *slackclient.Client) *server.MCPServer {
 	s := server.NewMCPServer("slack-search", "1.0.0")
 
 	s.AddTool(toolGrep(), handleGrep(db))
@@ -30,7 +44,7 @@ func Serve(db *sql.DB, client *slackclient.Client) error {
 	s.AddTool(toolCanvases(), handleCanvases(db))
 	s.AddTool(toolRefreshChannel(), handleRefreshChannel(db, client))
 
-	return server.ServeStdio(s)
+	return s
 }
 
 // --- slack_refresh_channel ---

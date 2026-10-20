@@ -74,6 +74,9 @@ On macOS, a launchd plist is included for hourly background refresh — see `com
 
 ### MCP Server
 
+stdio is the default MCP transport and works with clients that launch the
+server as a subprocess:
+
 ```json
 // ~/.cursor/mcp.json
 {
@@ -84,6 +87,25 @@ On macOS, a launchd plist is included for hourly background refresh — see `com
 ```
 
 Claude Code: `claude mcp add slack-search -- slack-search mcp`
+
+Streamable HTTP is opt-in:
+
+```sh
+slack-search mcp --transport streamable-http --addr 127.0.0.1:8000
+```
+
+The MCP endpoint is `http://127.0.0.1:8000/mcp`. The default listen address
+is loopback (`127.0.0.1:8000`). For a container whose trusted Podman peers
+need to connect, explicitly bind to all interfaces inside the container:
+
+```sh
+slack-search mcp --transport streamable-http --addr 0.0.0.0:8000
+```
+
+HTTP has no authentication. Do not expose this endpoint to untrusted clients.
+The `slack_refresh_channel` tool is available in both transports (when valid
+Slack credentials are configured), so an HTTP client can trigger an archive
+refresh as well as read data.
 
 Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`, `slack_refresh_channel`
 

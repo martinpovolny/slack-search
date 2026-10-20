@@ -2,11 +2,12 @@
 
 ## Overview
 
-Expose the slack-search archive as an MCP server so coding agents (Claude Code, Cursor, etc.) can query Slack history directly via structured tools. Single Go binary serves both the web UI (`serve`) and MCP (`mcp` subcommand over stdio).
+Expose the slack-search archive as an MCP server so coding agents (Claude Code, Cursor, etc.) can query Slack history directly via structured tools. Single Go binary serves both the web UI (`serve`) and MCP (`mcp` subcommand).
 
 ## Transport
 
-**stdio** (JSON-RPC) — simplest, works with all MCP clients.
+stdio (JSON-RPC) is the default transport and works with clients that launch
+the binary as a subprocess:
 
 ```bash
 slack-search mcp   # starts MCP server on stdin/stdout
@@ -23,6 +24,25 @@ Claude Code config (`~/.claude/settings.json`):
   }
 }
 ```
+
+Streamable HTTP is opt-in and serves the shared tool registry at `/mcp`:
+
+```bash
+slack-search mcp --transport streamable-http --addr 127.0.0.1:8000
+```
+
+The accepted transport values are `stdio` and `streamable-http`. The HTTP
+endpoint is `http://127.0.0.1:8000/mcp`, and the default listen address is
+loopback (`127.0.0.1:8000`). For a container whose trusted Podman peers need
+access, explicitly bind the container listener as follows:
+
+```bash
+slack-search mcp --transport streamable-http --addr 0.0.0.0:8000
+```
+
+Both transports use one shared tool registry and expose the same tools,
+including `slack_refresh_channel` when credentials are available. HTTP has no
+authentication; do not expose the endpoint to untrusted clients.
 
 ## Tools
 

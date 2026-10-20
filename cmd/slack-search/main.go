@@ -2,8 +2,10 @@ package main
 
 import (
 	"database/sql"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	iofs "io/fs"
 	"log"
 	"net/http"
@@ -40,6 +42,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	if os.Args[1] == "mcp" {
+		cmdMCP("")
+		return
+	}
 	dbPath := defaultDBPath()
 
 	switch os.Args[1] {
@@ -57,8 +63,6 @@ func main() {
 		cmdGrep(dbPath)
 	case "live-search":
 		cmdLiveSearch(dbPath)
-	case "mcp":
-		cmdMCP(dbPath)
 	case "bookmark-download":
 		cmdBookmarkDownload(dbPath)
 	case "canvas-download":
@@ -562,6 +566,20 @@ func cmdLiveSearch(dbPath string) {
 }
 
 func cmdMCP(dbPath string) {
+	options, err := parseMCPOptions(os.Args[2:])
+	if err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Println("Usage: slack-search mcp [--transport stdio|streamable-http] [--addr HOST:PORT]")
+			fmt.Println("  -transport string\n        MCP transport (default \"stdio\")")
+			fmt.Println("  -addr string\n        HTTP listen address (default \"127.0.0.1:8000\")")
+			return
+		}
+		log.Fatal(err)
+	}
+	if dbPath == "" {
+		dbPath = defaultDBPath()
+	}
+
 	conn := openDB(dbPath)
 	defer conn.Close() //nolint:errcheck
 
@@ -575,9 +593,47 @@ func cmdMCP(dbPath string) {
 		client = slackclient.NewClient(creds.Token, creds.Cookie, creds.Workspace, creds.RawCookies)
 	}
 
-	if err := mcpserver.Serve(conn, client); err != nil {
+	if err := dispatchMCP(options, func() error {
+		return mcpserver.Serve(conn, client)
+	}, func(addr string) error {
+		return mcpserver.ServeHTTP(conn, client, addr)
+	}); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func dispatchMCP(options mcpOptions, stdio func() error, streamableHTTP func(addr string) error) error {
+	switch options.transport {
+	case "stdio":
+		return stdio()
+	case "streamable-http":
+		return streamableHTTP(options.addr)
+	default:
+		return fmt.Errorf("invalid MCP transport %q", options.transport)
+	}
+}
+
+type mcpOptions struct {
+	transport string
+	addr      string
+}
+
+func parseMCPOptions(args []string) (mcpOptions, error) {
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var options mcpOptions
+	fs.StringVar(&options.transport, "transport", "stdio", "MCP transport")
+	fs.StringVar(&options.addr, "addr", "127.0.0.1:8000", "HTTP listen address")
+	if err := fs.Parse(args); err != nil {
+		return mcpOptions{}, err
+	}
+	if fs.NArg() != 0 {
+		return mcpOptions{}, fmt.Errorf("unexpected positional argument: %q", fs.Arg(0))
+	}
+	if options.transport != "stdio" && options.transport != "streamable-http" {
+		return mcpOptions{}, fmt.Errorf("invalid MCP transport %q", options.transport)
+	}
+	return options, nil
 }
 
 func cmdEval(dbPath string) {

@@ -18,6 +18,9 @@ ln -sf ~/Projects/slack-search/go/bin/slack-search ~/bin/slack-search
 
 ### 2. Configure your MCP client
 
+stdio is the default transport. Configure a client that launches the binary
+as a subprocess:
+
 **Claude Code** — add to `~/.claude/settings.json`:
 
 ```json
@@ -43,6 +46,26 @@ ln -sf ~/Projects/slack-search/go/bin/slack-search ~/bin/slack-search
   }
 }
 ```
+
+For clients that connect over HTTP, start Streamable HTTP explicitly:
+
+```sh
+slack-search mcp --transport streamable-http --addr 127.0.0.1:8000
+```
+
+The accepted `--transport` values are `stdio` (the default) and
+`streamable-http`. Streamable HTTP serves MCP at
+`http://127.0.0.1:8000/mcp`; its default listen address is the loopback
+address `127.0.0.1:8000`. For a container whose trusted Podman peers need
+access, explicitly bind the container listener to all interfaces:
+
+```sh
+slack-search mcp --transport streamable-http --addr 0.0.0.0:8000
+```
+
+HTTP has no authentication and must not be exposed to untrusted clients.
+Both transports use the same tool registry and provide the same tools,
+including `slack_refresh_channel` when Slack credentials are available.
 
 ### 3. Verify
 
@@ -120,16 +143,23 @@ The agent calls `slack_schema` before writing SQL to get the correct table defin
 ┌──────────────────┐         stdio          ┌─────────────────┐
 │  Claude Code /   │ ◄──── JSON-RPC ─────► │  slack-search    │
 │  Cursor / Agent  │                        │  mcp             │
-└──────────────────┘                        │                  │
-                                            │  ~/.slack-search │
-                                            │  /messages.db    │
+└──────────────────┘                        │  shared tool    │
+                                            │  registry        │
+┌──────────────────┐   HTTP /mcp           │                  │
+│  HTTP MCP client │ ◄───────────────────► │  ~/.slack-search │
+└──────────────────┘                       │  /messages.db    │
                                             └─────────────────┘
 ```
 
-The MCP server opens the shared SQLite database read-only and serves tool calls over stdin/stdout. It's the same binary that powers the web UI (`slack-search serve`) and the CLI.
+The MCP server uses one shared tool registry for both stdio and Streamable
+HTTP, and opens the shared SQLite database for the tools. Most tools query the
+archive, while `slack_refresh_channel` can update it. It's the same binary
+that powers the web UI (`slack-search serve`) and the CLI.
 
 ## Data
 
 The archive at `~/.slack-search/messages.db` is kept fresh by the background refresh goroutine in `slack-search serve` (every 30 minutes by default), or by the launchd cron job, or by manual `slack-search refresh` runs.
 
-All tools are read-only — the MCP server never modifies the database.
+The search and SQL tools are read-only, but `slack_refresh_channel` can modify
+the database to refresh a channel. This is another reason the unauthenticated
+HTTP transport must remain reachable only by trusted clients.
