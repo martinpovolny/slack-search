@@ -110,7 +110,11 @@ func TestCatchupThreadsRefreshesThreadWhenCachedReplyCountMatches(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	const channelID = "C12345678"
 	const parentTS = "1000.000001"

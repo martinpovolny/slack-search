@@ -64,7 +64,9 @@ func hasCol(db *sql.DB, col string) bool {
 	if rows == nil {
 		return false
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -94,7 +96,9 @@ func ListConversations(db *sql.DB) ([]Conversation, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var convs []Conversation
 	for rows.Next() {
@@ -147,7 +151,9 @@ func LoadConvMessages(db *sql.DB, conversationID string) ([]ConvMessage, error) 
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var msgs []ConvMessage
 	for rows.Next() {

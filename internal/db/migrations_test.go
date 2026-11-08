@@ -102,7 +102,11 @@ func TestOpenAppliesDuplicateBlockKitTextMigrationOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 	assertMessageTextAndRawJSON(t, conn, "2000.000001", lateText, lateRaw)
 	assertMigrationRecord(t, conn, 1, "deduplicate-block-kit-message-text", 1)
 	if got := strings.Count(migrationLog.String(), "Applying database migration 1 (deduplicate-block-kit-message-text)"); got != 1 {

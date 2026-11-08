@@ -126,7 +126,9 @@ func migrate(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	hasSubscribed := false
 	hasMemberNames := false
@@ -330,7 +332,9 @@ func SubscribedChannels(db *sql.DB) ([]struct{ ID, Name string }, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var channels []struct{ ID, Name string }
 	for rows.Next() {
@@ -357,7 +361,9 @@ func AllChannelsWithSubscribed(db *sql.DB) ([]Channel, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var channels []Channel
 	for rows.Next() {
@@ -459,7 +465,9 @@ func SearchCanvases(db *sql.DB, channel, query string) ([]Canvas, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() {
+		_ = rows.Close()
+	}()
 
 	var results []Canvas
 	for rows.Next() {

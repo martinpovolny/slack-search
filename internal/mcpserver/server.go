@@ -240,7 +240,6 @@ func handleThread(db *sql.DB) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
 		}
-		defer rows.Close()
 
 		type msg struct {
 			Time   string `json:"time"`
@@ -251,9 +250,22 @@ func handleThread(db *sql.DB) server.ToolHandlerFunc {
 		var msgs []msg
 		for rows.Next() {
 			var m msg
-			if rows.Scan(&m.Time, &m.Author, &m.Text, &m.TS) == nil {
-				msgs = append(msgs, m)
+			if err := rows.Scan(&m.Time, &m.Author, &m.Text, &m.TS); err != nil {
+				if closeErr := rows.Close(); closeErr != nil {
+					err = fmt.Errorf("scan message row: %w (close rows: %v)", err, closeErr)
+				}
+				return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
 			}
+			msgs = append(msgs, m)
+		}
+		if err := rows.Err(); err != nil {
+			if closeErr := rows.Close(); closeErr != nil {
+				err = fmt.Errorf("read message rows: %w (close rows: %v)", err, closeErr)
+			}
+			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
+		}
+		if err := rows.Close(); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("query close error: %v", err)), nil
 		}
 
 		// Resolve mentions
@@ -292,7 +304,9 @@ func handleChannels(db *sql.DB) server.ToolHandlerFunc {
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		defer rows.Close()
+		defer func() {
+			_ = rows.Close()
+		}()
 
 		type ch struct {
 			ID   string `json:"id"`
@@ -327,9 +341,11 @@ func handleSchema(db *sql.DB) server.ToolHandlerFunc {
 
 		// Add archive date range
 		var oldest, newest sql.NullString
-		db.QueryRow(
+		if err := db.QueryRow(
 			"SELECT date(min(timestamp),'unixepoch'), date(max(timestamp),'unixepoch') FROM messages",
-		).Scan(&oldest, &newest)
+		).Scan(&oldest, &newest); err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("archive date range query: %v", err)), nil
+		}
 
 		if oldest.Valid {
 			schema += fmt.Sprintf("\n\nArchive date range: %s to %s", oldest.String, newest.String)

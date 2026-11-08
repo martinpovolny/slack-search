@@ -85,7 +85,7 @@ type GrepOptions struct {
 
 // GrepResult holds one grep match.
 type GrepResult struct {
-	Type      string `json:"Type"`      // "msg", "canvas", "bookmark"
+	Type      string `json:"Type"` // "msg", "canvas", "bookmark"
 	Time      string `json:"Time"`
 	Channel   string `json:"Channel"`
 	ChannelID string `json:"ChannelID"`
@@ -278,11 +278,6 @@ func grepCanvases(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 func grepBookmarks(db *sql.DB, opts GrepOptions) ([]GrepResult, error) {
 	var where []string
 	var args []interface{}
-
-	searchTerm := opts.FixedString
-	if searchTerm == "" {
-		searchTerm = opts.Pattern
-	}
 
 	if opts.FixedString != "" {
 		where = append(where, "(b.title LIKE ? OR b.link LIKE ?)")

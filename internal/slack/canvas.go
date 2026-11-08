@@ -30,7 +30,7 @@ func encodeStringField(fieldNum int, s string) []byte {
 
 // encodeVarintField encodes a protobuf varint field (wire type 0).
 func encodeVarintField(fieldNum int, value int) []byte {
-	tag := (fieldNum << 3) | 0
+	tag := fieldNum << 3
 	var buf []byte
 	buf = append(buf, encodeVarint(tag)...)
 	buf = append(buf, encodeVarint(value)...)
@@ -58,19 +58,19 @@ func BuildCanvasRequestBinary(quipID string) string {
 
 // Precompiled regexes for ExtractCanvasText.
 var (
-	rePrintable     = regexp.MustCompile(`[\x20-\x7e]{15,}`)
-	reTemp          = regexp.MustCompile(`temp:`)
-	reStructPrefix  = regexp.MustCompile(`^(aal|aTY|IfB|dbB|LGU|cSF|GU9|ke8)`)
-	reLongHex       = regexp.MustCompile(`^[0-9a-f]{20,}$`)
-	reBase64ish     = regexp.MustCompile(`^[A-Za-z0-9/+=]{15,}$`)
-	reSuPrefix      = regexp.MustCompile(`^su:|^zzzzzz-|^Section/`)
-	reHexDash       = regexp.MustCompile(`^[0-9a-f]{8,}-\d+$`)
-	reParenHex      = regexp.MustCompile(`^\([0-9a-f]{30,}$`)
-	reEDigits       = regexp.MustCompile(`^E\d{9,}`)
+	rePrintable       = regexp.MustCompile(`[\x20-\x7e]{15,}`)
+	reTemp            = regexp.MustCompile(`temp:`)
+	reStructPrefix    = regexp.MustCompile(`^(aal|aTY|IfB|dbB|LGU|cSF|GU9|ke8)`)
+	reLongHex         = regexp.MustCompile(`^[0-9a-f]{20,}$`)
+	reBase64ish       = regexp.MustCompile(`^[A-Za-z0-9/+=]{15,}$`)
+	reSuPrefix        = regexp.MustCompile(`^su:|^zzzzzz-|^Section/`)
+	reHexDash         = regexp.MustCompile(`^[0-9a-f]{8,}-\d+$`)
+	reParenHex        = regexp.MustCompile(`^\([0-9a-f]{30,}$`)
+	reEDigits         = regexp.MustCompile(`^E\d{9,}`)
 	reUpperUnderscore = regexp.MustCompile(`^[A-Z_]{10,}$`)
-	reTrailingJL    = regexp.MustCompile(`jL$`)
-	reHTMLTag       = regexp.MustCompile(`<[^>]+>`)
-	reLeadingProto  = regexp.MustCompile(`^[A-Z^>]\s*([A-Z])`)
+	reTrailingJL      = regexp.MustCompile(`jL$`)
+	reHTMLTag         = regexp.MustCompile(`<[^>]+>`)
+	reLeadingProto    = regexp.MustCompile(`^[A-Z^>]\s*([A-Z])`)
 	reLeadingNonAlpha = regexp.MustCompile(`^[^a-zA-Z0-9("]+`)
 )
 

@@ -12,7 +12,11 @@ func TestInsertAndListBookmarks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	// Insert a channel first
 	if err := db.UpsertChannel(conn, "C123", "test-channel"); err != nil {
@@ -35,7 +39,9 @@ func TestInsertAndListBookmarks(t *testing.T) {
 
 	// Verify it's there
 	var count int
-	conn.QueryRow("SELECT COUNT(*) FROM bookmarks WHERE id = ?", "Bk123").Scan(&count)
+	if err := conn.QueryRow("SELECT COUNT(*) FROM bookmarks WHERE id = ?", "Bk123").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
 	if count != 1 {
 		t.Fatalf("expected 1 bookmark, got %d", count)
 	}
@@ -46,7 +52,9 @@ func TestInsertAndListBookmarks(t *testing.T) {
 		t.Fatalf("InsertBookmark upsert: %v", err)
 	}
 	var title string
-	conn.QueryRow("SELECT title FROM bookmarks WHERE id = ?", "Bk123").Scan(&title)
+	if err := conn.QueryRow("SELECT title FROM bookmarks WHERE id = ?", "Bk123").Scan(&title); err != nil {
+		t.Fatal(err)
+	}
 	if title != "Updated Title" {
 		t.Fatalf("expected 'Updated Title', got '%s'", title)
 	}

@@ -12,7 +12,11 @@ func TestInsertAndSearchCanvases(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
 	// Insert a channel first
 	if err := db.UpsertChannel(conn, "C456", "test-channel"); err != nil {
@@ -35,7 +39,9 @@ func TestInsertAndSearchCanvases(t *testing.T) {
 
 	// Verify it's there
 	var count int
-	conn.QueryRow("SELECT COUNT(*) FROM canvases WHERE file_id = ?", "F123abc").Scan(&count)
+	if err := conn.QueryRow("SELECT COUNT(*) FROM canvases WHERE file_id = ?", "F123abc").Scan(&count); err != nil {
+		t.Fatal(err)
+	}
 	if count != 1 {
 		t.Fatalf("expected 1 canvas, got %d", count)
 	}
@@ -76,7 +82,9 @@ func TestInsertAndSearchCanvases(t *testing.T) {
 		t.Fatalf("InsertCanvas upsert: %v", err)
 	}
 	var title string
-	conn.QueryRow("SELECT title FROM canvases WHERE file_id = ?", "F123abc").Scan(&title)
+	if err := conn.QueryRow("SELECT title FROM canvases WHERE file_id = ?", "F123abc").Scan(&title); err != nil {
+		t.Fatal(err)
+	}
 	if title != "Updated Canvas Title" {
 		t.Fatalf("expected 'Updated Canvas Title', got '%s'", title)
 	}
@@ -87,19 +95,31 @@ func TestSearchCanvasesMultipleChannels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	t.Cleanup(func() {
+		if err := conn.Close(); err != nil {
+			t.Errorf("close database: %v", err)
+		}
+	})
 
-	db.UpsertChannel(conn, "C1", "alpha")
-	db.UpsertChannel(conn, "C2", "beta")
+	if err := db.UpsertChannel(conn, "C1", "alpha"); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.UpsertChannel(conn, "C2", "beta"); err != nil {
+		t.Fatal(err)
+	}
 
-	db.InsertCanvas(conn, db.Canvas{
+	if err := db.InsertCanvas(conn, db.Canvas{
 		FileID: "F1", ChannelID: "C1", Title: "Alpha Canvas",
 		ContentText: "content alpha", UpdatedAt: 1700000000,
-	})
-	db.InsertCanvas(conn, db.Canvas{
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.InsertCanvas(conn, db.Canvas{
 		FileID: "F2", ChannelID: "C2", Title: "Beta Canvas",
 		ContentText: "content beta", UpdatedAt: 1700000001,
-	})
+	}); err != nil {
+		t.Fatal(err)
+	}
 
 	// Search all
 	results, err := db.SearchCanvases(conn, "", "")

@@ -89,7 +89,7 @@ func (h *Handler) handleSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) handleSchema(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]string{"schema": search.SchemaDescription()})
+	_ = json.NewEncoder(w).Encode(map[string]string{"schema": search.SchemaDescription()})
 }
 
 func (h *Handler) handleGrep(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +113,7 @@ func (h *Handler) handleGrep(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
@@ -208,7 +208,7 @@ func (h *Handler) handleNLQ(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
@@ -241,20 +241,29 @@ func (h *Handler) handleMessages(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }
 
 func (h *Handler) handleStats(w http.ResponseWriter, r *http.Request) {
 	var msgCount, chCount int
-	h.db.QueryRow("SELECT count(*) FROM messages").Scan(&msgCount)
-	h.db.QueryRow("SELECT count(*) FROM channels").Scan(&chCount)
+	if err := h.db.QueryRow("SELECT count(*) FROM messages").Scan(&msgCount); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	if err := h.db.QueryRow("SELECT count(*) FROM channels").Scan(&chCount); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
 	var oldest, newest sql.NullString
-	h.db.QueryRow(
+	if err := h.db.QueryRow(
 		"SELECT date(min(timestamp),'unixepoch'), date(max(timestamp),'unixepoch') FROM messages",
-	).Scan(&oldest, &newest)
+	).Scan(&oldest, &newest); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"message_count": msgCount,
 		"channel_count": chCount,
 		"oldest":        oldest.String,
@@ -280,14 +289,14 @@ func (h *Handler) handleConversations(w http.ResponseWriter, r *http.Request) {
 		if convs == nil {
 			convs = []db.Conversation{}
 		}
-		json.NewEncoder(w).Encode(convs)
+		_ = json.NewEncoder(w).Encode(convs)
 	case "POST":
 		id, err := db.CreateConversation(h.convDB)
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"id": id})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": id})
 	default:
 		jsonError(w, "method not allowed", 405)
 	}
@@ -316,7 +325,7 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 		if msgs == nil {
 			msgs = []db.ConvMessage{}
 		}
-		json.NewEncoder(w).Encode(msgs)
+		_ = json.NewEncoder(w).Encode(msgs)
 		return
 	}
 
@@ -326,7 +335,7 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), 500)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "deleted"})
 	case "PATCH":
 		var req struct {
 			Title string `json:"title"`
@@ -339,7 +348,7 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), 500)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]string{"status": "renamed"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "renamed"})
 	default:
 		jsonError(w, "method not allowed", 405)
 	}
@@ -349,11 +358,11 @@ func (h *Handler) handleConversation(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) handleConfig(w http.ResponseWriter, r *http.Request) {
 	cfg := config.Load()
-	json.NewEncoder(w).Encode(cfg)
+	_ = json.NewEncoder(w).Encode(cfg)
 }
 
 func (h *Handler) handleSlackStatus(w http.ResponseWriter, r *http.Request) {
-	json.NewEncoder(w).Encode(map[string]bool{"connected": h.slackClient != nil})
+	_ = json.NewEncoder(w).Encode(map[string]bool{"connected": h.slackClient != nil})
 }
 
 func (h *Handler) handleRuntime(w http.ResponseWriter, r *http.Request) {
@@ -369,14 +378,17 @@ func (h *Handler) handleRuntime(w http.ResponseWriter, r *http.Request) {
 
 	// Last refresh: oldest latest_ts across subscribed channels
 	var lastRefresh sql.NullString
-	h.db.QueryRow(`
+	if err := h.db.QueryRow(`
 		SELECT datetime(min(CAST(ds.latest_ts AS REAL)), 'unixepoch')
 		FROM download_state ds
 		JOIN channels c ON ds.channel_id = c.id
 		WHERE c.subscribed = 1
-	`).Scan(&lastRefresh)
+	`).Scan(&lastRefresh); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	_ = json.NewEncoder(w).Encode(map[string]interface{}{
 		"commit":       Commit,
 		"build_time":   BuildTime,
 		"go_version":   runtime.Version(),
@@ -430,5 +442,5 @@ func (h *Handler) handleSlackSearch(w http.ResponseWriter, r *http.Request) {
 	if results == nil {
 		results = []slackclient.SearchResult{}
 	}
-	json.NewEncoder(w).Encode(results)
+	_ = json.NewEncoder(w).Encode(results)
 }

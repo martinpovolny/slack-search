@@ -14,11 +14,11 @@ import (
 )
 
 var authErrors = map[string]bool{
-	"invalid_auth":      true,
-	"not_authed":        true,
-	"token_expired":     true,
-	"token_revoked":     true,
-	"account_inactive":  true,
+	"invalid_auth":       true,
+	"not_authed":         true,
+	"token_expired":      true,
+	"token_revoked":      true,
+	"account_inactive":   true,
 	"org_login_required": true,
 }
 
@@ -106,8 +106,8 @@ func (c *Client) post(method string, params map[string]string) (json.RawMessage,
 		}
 
 		var result struct {
-			OK    bool            `json:"ok"`
-			Error string          `json:"error"`
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
 		}
 		if err := json.Unmarshal(body, &result); err != nil {
 			return nil, fmt.Errorf("slack %s: invalid JSON: %w", method, err)
@@ -220,7 +220,9 @@ func (c *Client) FetchCanvas(quipID string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("canvas fetch: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

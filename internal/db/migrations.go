@@ -29,7 +29,9 @@ func runMigrations(db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("get migration connection: %w", err)
 	}
-	defer conn.Close()
+	defer func() {
+		_ = conn.Close()
+	}()
 
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		return fmt.Errorf("begin migration transaction: %w", err)

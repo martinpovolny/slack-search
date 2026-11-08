@@ -711,7 +711,7 @@ func cmdServe(dbPath string) {
 	// Health check
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"status":"ok","commit":%q,"build_time":%q}`, commit, buildTime)
+		_, _ = fmt.Fprintf(w, `{"status":"ok","commit":%q,"build_time":%q}`, commit, buildTime)
 	})
 
 	// Embedded frontend

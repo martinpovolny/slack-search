@@ -456,12 +456,22 @@ func catchupThreads(conn *sql.DB, client threadCatchupClient, lookbackDays int, 
 	for rows.Next() {
 		var t threadInfo
 		if err := rows.Scan(&t.ts, &t.channelID, &t.storedRC, &t.channelName); err != nil {
-			rows.Close()
+			if closeErr := rows.Close(); closeErr != nil {
+				return 0, fmt.Errorf("scan thread row: %w (close rows: %v)", err, closeErr)
+			}
 			return 0, err
 		}
 		threads = append(threads, t)
 	}
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		if closeErr := rows.Close(); closeErr != nil {
+			return 0, fmt.Errorf("iterate thread rows: %w (close rows: %v)", err, closeErr)
+		}
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
 
 	if len(threads) == 0 {
 		return 0, nil
