@@ -45,6 +45,8 @@ func main() {
 	switch os.Args[1] {
 	case "download":
 		cmdDownload(dbPath)
+	case "unsubscribe":
+		cmdUnsubscribe(dbPath)
 	case "refresh":
 		cmdRefresh(dbPath)
 	case "search":
@@ -83,6 +85,7 @@ func printUsage() {
 
 Commands:
   download    Download messages from a Slack channel
+  unsubscribe Stop refreshing a channel in the local archive
   refresh     Refresh all subscribed channels
   search      Run a raw SQL query
   schema      Show the database schema
@@ -203,6 +206,25 @@ func cmdDownload(dbPath string) {
 		log.Fatal(err)
 	}
 	fmt.Printf("Done. %d new message(s) stored.\n", count)
+}
+
+func cmdUnsubscribe(dbPath string) {
+	fs := flag.NewFlagSet("unsubscribe", flag.ExitOnError)
+	var channel string
+	fs.StringVar(&channel, "channel", "", "Channel name or ID (required)")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
+	if channel == "" {
+		log.Fatal("--channel is required")
+	}
+
+	conn := openDB(dbPath)
+	defer conn.Close() //nolint:errcheck
+	if err := db.UnsubscribeChannel(conn, channel); err != nil {
+		log.Fatal(err)
+	}
+	fmt.Printf("Unsubscribed %q from archive refresh.\n", channel)
 }
 
 func cmdRefresh(dbPath string) {

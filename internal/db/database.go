@@ -188,6 +188,22 @@ func SubscribeChannel(db *sql.DB, channelID string) error {
 	return err
 }
 
+// UnsubscribeChannel stops refreshing a channel while retaining its archived messages.
+func UnsubscribeChannel(db *sql.DB, channel string) error {
+	result, err := db.Exec("UPDATE channels SET subscribed=0 WHERE id=? OR name=?", channel, channel)
+	if err != nil {
+		return err
+	}
+	updated, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if updated == 0 {
+		return fmt.Errorf("channel %q not found in archive", channel)
+	}
+	return nil
+}
+
 // LookupChannelID returns a channel ID by name from the local cache, or "" if not found.
 func LookupChannelID(db *sql.DB, name string) string {
 	var id string
