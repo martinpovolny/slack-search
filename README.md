@@ -60,6 +60,11 @@ Open http://localhost:8088 — SQL, natural language queries, Slack live search,
 | `serve` | Web UI with background refresh |
 | `mcp` | MCP server for AI agents |
 
+Existing archives are automatically migrated the first time a newer version
+opens them. This includes repair of messages affected by a past Block Kit text
+duplication bug. The migration prints progress while it runs, records its
+completion, and is skipped on later opens.
+
 ## Keeping Channels Up to Date
 
 **`slack-search serve`** handles this automatically. If you only use the CLI:

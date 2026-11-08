@@ -39,6 +39,55 @@ func TestMessageTextIncludesAttachmentOnlyAlertContent(t *testing.T) {
 	}
 }
 
+func TestMessageTextDoesNotDuplicateEquivalentRichTextBlock(t *testing.T) {
+	msg := map[string]interface{}{
+		"text": "slack search - participant names in private channels",
+		"blocks": []interface{}{
+			map[string]interface{}{
+				"type": "rich_text",
+				"elements": []interface{}{
+					map[string]interface{}{
+						"type": "rich_text_section",
+						"elements": []interface{}{
+							map[string]interface{}{
+								"type": "text",
+								"text": "slack search - participant names in private channels",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if got, want := messageText(msg), "slack search - participant names in private channels"; got != want {
+		t.Fatalf("messageText() = %q, want %q", got, want)
+	}
+}
+
+func TestMessageTextKeepsDistinctRichTextBlock(t *testing.T) {
+	msg := map[string]interface{}{
+		"text": "fallback",
+		"blocks": []interface{}{
+			map[string]interface{}{
+				"type": "rich_text",
+				"elements": []interface{}{
+					map[string]interface{}{
+						"type": "rich_text_section",
+						"elements": []interface{}{
+							map[string]interface{}{"type": "text", "text": "visible block detail"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	if got, want := messageText(msg), "fallback\nvisible block detail"; got != want {
+		t.Fatalf("messageText() = %q, want %q", got, want)
+	}
+}
+
 func (c *fakeThreadClient) ConversationsReplies(map[string]string) (json.RawMessage, error) {
 	c.calls++
 	return c.replies, nil

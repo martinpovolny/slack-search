@@ -94,7 +94,7 @@ CREATE TABLE IF NOT EXISTS canvases (
 `
 
 func Open(path string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3_with_regexp", path+"?_journal_mode=WAL&_foreign_keys=ON")
+	db, err := sql.Open("sqlite3_with_regexp", path+"?_journal_mode=WAL&_foreign_keys=ON&_busy_timeout=300000")
 	if err != nil {
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
@@ -105,6 +105,10 @@ func Open(path string) (*sql.DB, error) {
 	if err := migrate(db); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	if err := runMigrations(db); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("run database migrations: %w", err)
 	}
 	return db, nil
 }

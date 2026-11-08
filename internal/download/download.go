@@ -22,25 +22,25 @@ type Options struct {
 // attachment while leaving the top-level text empty.
 func messageText(msg map[string]interface{}) string {
 	var parts []string
-	appendText := func(value interface{}) {
+	appendText := func(target *[]string, value interface{}) {
 		if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
-			parts = append(parts, strings.TrimSpace(text))
+			*target = append(*target, strings.TrimSpace(text))
 		}
 	}
 
-	appendText(msg["text"])
+	appendText(&parts, msg["text"])
 	if attachments, ok := msg["attachments"].([]interface{}); ok {
 		for _, attachment := range attachments {
 			if item, ok := attachment.(map[string]interface{}); ok {
-				appendText(item["fallback"])
-				appendText(item["pretext"])
-				appendText(item["title"])
-				appendText(item["text"])
+				appendText(&parts, item["fallback"])
+				appendText(&parts, item["pretext"])
+				appendText(&parts, item["title"])
+				appendText(&parts, item["text"])
 				if fields, ok := item["fields"].([]interface{}); ok {
 					for _, field := range fields {
 						if value, ok := field.(map[string]interface{}); ok {
-							appendText(value["title"])
-							appendText(value["value"])
+							appendText(&parts, value["title"])
+							appendText(&parts, value["value"])
 						}
 					}
 				}
@@ -50,6 +50,7 @@ func messageText(msg map[string]interface{}) string {
 
 	// Block Kit messages commonly carry text in nested objects. Walk only
 	// text-bearing keys so IDs and formatting metadata do not pollute search.
+	var blockParts []string
 	var appendBlocks func(interface{})
 	appendBlocks = func(value interface{}) {
 		switch value := value.(type) {
@@ -59,7 +60,7 @@ func messageText(msg map[string]interface{}) string {
 			}
 		case map[string]interface{}:
 			if kind, _ := value["type"].(string); kind == "text" || kind == "plain_text" || kind == "mrkdwn" {
-				appendText(value["text"])
+				appendText(&blockParts, value["text"])
 			}
 			for _, key := range []string{"blocks", "elements", "fields"} {
 				appendBlocks(value[key])
@@ -67,6 +68,14 @@ func messageText(msg map[string]interface{}) string {
 		}
 	}
 	appendBlocks(msg["blocks"])
+
+	// Slack can provide the same message body in both the top-level fallback
+	// and a rich-text block. Keep one copy when the full block text is identical.
+	topLevelText, _ := msg["text"].(string)
+	blockText := strings.Join(blockParts, "\n")
+	if strings.TrimSpace(topLevelText) != blockText {
+		parts = append(parts, blockParts...)
+	}
 
 	return strings.Join(parts, "\n")
 }
