@@ -2,6 +2,8 @@
 
 Download Slack channels to a local SQLite database. Search with grep, SQL, natural language, or through a web UI. Works as an MCP server for AI agents.
 
+[![CI](https://github.com/martinpovolny/slack-search/actions/workflows/ci.yml/badge.svg)](https://github.com/martinpovolny/slack-search/actions/workflows/ci.yml)
+
 ![Web UI](docs/web-ui-go.png)
 
 ## Quick Start
@@ -114,3 +116,9 @@ files     (id, ts, channel_id, name, mimetype, url, local_path)
 ## Python version
 
 The `python/` directory contains the original Streamlit-based implementation, used for prototyping. The Go binary is the primary tool.
+
+## CI
+
+The [GitHub Actions workflow](.github/workflows/ci.yml) checks Go lint, build,
+race-enabled tests and vulnerabilities; frontend lint, build and embedded
+asset consistency; Python tests; and offline Markdown links.
