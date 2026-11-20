@@ -177,8 +177,8 @@ func migrate(db *sql.DB) error {
 // MaxDeepScanDays bounds the per-channel deep-scan window.
 const MaxDeepScanDays = 365
 
-// SetDeepScanDays sets how many days of history and threads every refresh
-// re-scans for a channel (0 disables the per-channel deep scan).
+// SetDeepScanDays sets the channel's deep-scan window: every refresh re-fetches
+// each thread whose parent is at most that many days old (0 disables it).
 func SetDeepScanDays(db *sql.DB, channelID string, days int) error {
 	if days < 0 || days > MaxDeepScanDays {
 		return fmt.Errorf("deep scan days must be between 0 and %d", MaxDeepScanDays)

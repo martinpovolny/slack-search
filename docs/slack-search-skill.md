@@ -126,7 +126,7 @@ CREATE TABLE channels (
     id         TEXT PRIMARY KEY,   -- Slack channel ID, e.g. C04476G1F7H
     name       TEXT NOT NULL,      -- channel name without #, e.g. cost-mgmt-dev
     subscribed INTEGER DEFAULT 0,  -- 1 = explicitly downloaded, 0 = from live-search
-    deep_scan_days INTEGER DEFAULT 0  -- days of history and threads each refresh re-scans
+    deep_scan_days INTEGER DEFAULT 0  -- refresh re-fetches every thread this many days old or newer
 );
 
 -- Slack workspace members

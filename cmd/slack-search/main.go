@@ -259,7 +259,7 @@ func cmdRefresh(dbPath string) {
 	var noThreads bool
 	var lookback int
 	fs.BoolVar(&noThreads, "no-threads", false, "Skip fetching thread replies")
-	fs.IntVar(&lookback, "lookback", 0, "Re-scan history and threads from the last N days for new replies; channels with a larger deep-scan window use theirs (0=deep-scan channels only)")
+	fs.IntVar(&lookback, "lookback", 0, "Re-read history from the last N days and fetch threads with missing replies; channels' deep_scan_days also apply (0=deep-scan channels only)")
 
 	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
 
@@ -307,7 +307,7 @@ func cmdChannelConfig(dbPath string) {
 	var deepScanDays int
 	fs.StringVar(&channel, "channel", "", "Channel name or ID (omit to list subscribed channels)")
 	fs.IntVar(&deepScanDays, "deep-scan-days", -1,
-		fmt.Sprintf("Days of history and threads every refresh re-scans for this channel (0 disables, max %d)", db.MaxDeepScanDays))
+		fmt.Sprintf("Re-fetch every thread whose parent is from the last N days on each refresh (0 disables, max %d)", db.MaxDeepScanDays))
 	if err := fs.Parse(os.Args[2:]); err != nil {
 		log.Fatal(err)
 	}
@@ -864,8 +864,8 @@ func cmdServe(dbPath string) {
 					if err != nil {
 						log.Printf("Refresh error: %v", err)
 					}
-					// Re-scan history and threads over each channel's window:
-					// max(lookback, channels.deep_scan_days).
+					// Re-read history over max(lookback, deep_scan_days); fetch
+					// changed threads, and every thread in the deep window.
 					count, err := download.ScanSubscribedChannels(conn, slackClient, lookback)
 					if err != nil {
 						log.Printf("Thread scan error: %v", err)

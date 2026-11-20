@@ -100,9 +100,11 @@ omitted when it is zero.
 
 ### `slack_refresh_channel`
 
-Fetch new messages for one channel, then re-read its history and re-fetch its
-threads over the scan window: `lookback_days` (default 7, maximum 30) or the
-channel's `deep_scan_days`, whichever is larger. Requires `~/.slack-search/.curl`.
+Fetch new messages for one channel, then re-read its history over
+`lookback_days` (default 7, maximum 30) or the channel's `deep_scan_days`,
+whichever is larger. Threads with parents in the deep-scan window are always
+re-fetched; older ones only when Slack reports replies the archive lacks.
+Requires `~/.slack-search/.curl`.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -126,8 +128,10 @@ stored, and whether the permalinked message is now archived.
 
 ### `slack_set_deep_scan`
 
-Set a channel's per-channel scan window in days (0 disables, maximum 365).
-Local setting only. See [thread replies](thread-sync.md) for the cost.
+Set a channel's deep-scan window in days (0 disables, maximum 365): every
+refresh re-fetches each thread whose parent is that recent, capturing edits to
+existing replies. Local setting only. See [thread replies](thread-sync.md)
+for the cost.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

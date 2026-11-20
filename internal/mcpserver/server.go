@@ -45,7 +45,7 @@ When a user supplies a Slack permalink, or a thread looks incomplete, call slack
 
 func toolSetDeepScan() mcp.Tool {
 	return mcp.NewTool("slack_set_deep_scan",
-		mcp.WithDescription(fmt.Sprintf("Set a channel's deep-scan window: every refresh re-reads that many days of channel history and re-fetches every thread with replies in it, so late replies to older threads are archived. Costs one Slack call per 200 messages plus one per thread in the window. 0 disables it (the global lookback still applies). Maximum %d. Local setting only; does not contact Slack.", db.MaxDeepScanDays)),
+		mcp.WithDescription(fmt.Sprintf("Set a channel's deep-scan window: every refresh unconditionally re-fetches every thread with replies whose parent is from the last that many days, which also captures edits to existing replies. Older parents within the global lookback still get the normal scan, which fetches a thread only when Slack reports replies the archive lacks. Costs one Slack call per thread in the deep window per refresh. 0 disables it. Maximum %d. Local setting only; does not contact Slack.", db.MaxDeepScanDays)),
 		mcp.WithString("channel", mcp.Required(), mcp.Description("Channel name or ID already in the archive")),
 		mcp.WithNumber("days", mcp.Required(), mcp.Description("Deep-scan window in days (0 disables)")),
 		mcp.WithReadOnlyHintAnnotation(false),
@@ -142,7 +142,7 @@ func handleFetchThread(conn *sql.DB, client *slackclient.Client) server.ToolHand
 
 func toolRefreshChannel() mcp.Tool {
 	return mcp.NewTool("slack_refresh_channel",
-		mcp.WithDescription("Fetch the latest messages for one Slack channel into the local archive, then re-read channel history over the scan window and re-fetch every thread with replies in it, so replies to older parents are captured. The scan window is max(lookback_days, the channel's deep_scan_days). Threads whose parent is older than the window are not re-checked; use slack_fetch_thread for those. Requires ~/.slack-search/.curl credentials."),
+		mcp.WithDescription("Fetch the latest messages for one Slack channel into the local archive, then re-read channel history over max(lookback_days, the channel's deep_scan_days) and fetch threads: in the channel's deep_scan_days every thread with replies is re-fetched (captures edits to replies); older parents are fetched only when Slack reports replies the archive lacks. Threads whose parent is older than the window are not re-checked; use slack_fetch_thread for those. Requires ~/.slack-search/.curl credentials."),
 		mcp.WithString("channel", mcp.Required(), mcp.Description("Channel name or ID to refresh")),
 		mcp.WithNumber("lookback_days", mcp.Description("Days of history and threads to re-scan (default 7, maximum 30); a larger per-channel deep_scan_days takes precedence")),
 		mcp.WithReadOnlyHintAnnotation(false),
@@ -180,29 +180,26 @@ func handleRefreshChannel(conn *sql.DB, client *slackclient.Client) server.ToolH
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("refresh channel: %v", err)), nil
 		}
-		scanDays := download.ScanWindowDays(conn, channelID, lookbackDays)
-		scan, err := download.ScanChannelThreads(conn, client, channelID, scanDays)
+		deepDays, err := db.DeepScanDays(conn, channelID)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("read deep_scan_days: %v", err)), nil
+		}
+		scan, err := download.ScanChannelThreads(conn, client, channelID, lookbackDays, deepDays)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("re-scan recent history and threads: %v", err)), nil
 		}
 
 		result := struct {
-			Channel             string `json:"channel"`
-			ChannelID           string `json:"channel_id"`
-			NewMessages         int    `json:"new_messages"`
-			NewThreadReplies    int    `json:"new_thread_replies"`
-			LookbackDays        int    `json:"lookback_days"`
-			ScanDays            int    `json:"scan_days"`
-			HistoryRescanned    int    `json:"history_messages_rescanned"`
-			NewMessagesInRescan int    `json:"new_messages_in_rescan"`
+			Channel     string `json:"channel"`
+			ChannelID   string `json:"channel_id"`
+			NewMessages int    `json:"new_messages"`
+			download.ScanResult
+			NewMessagesInRescan int `json:"new_messages_in_rescan"`
 		}{
 			Channel:             channelName,
 			ChannelID:           channelID,
 			NewMessages:         messageCount,
-			NewThreadReplies:    scan.NewThreadReplies,
-			LookbackDays:        lookbackDays,
-			ScanDays:            scanDays,
-			HistoryRescanned:    scan.HistoryMessages,
+			ScanResult:          scan,
 			NewMessagesInRescan: scan.NewMessages,
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")

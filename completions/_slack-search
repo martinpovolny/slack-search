@@ -49,7 +49,7 @@ _slack-search() {
             '--token[Slack token]:token:' \
             '--cookie[Session cookie]:cookie:' \
             '--workspace[Workspace hostname]:hostname:' \
-            '--lookback[Re-scan history and threads from the last N days]:days:' \
+            '--lookback[Re-read history and fetch changed threads from the last N days]:days:' \
             '--no-threads[Skip fetching thread replies]'
           ;;
         fetch-thread)
@@ -62,7 +62,7 @@ _slack-search() {
         channel-config)
           _arguments \
             '--channel[Channel name or ID]:channel:_slack_search_channels' \
-            '--deep-scan-days[Days of history and threads to re-scan (0 disables)]:days:'
+            '--deep-scan-days[Re-fetch every thread from the last N days on refresh (0 disables)]:days:'
           ;;
         search)
           _arguments \

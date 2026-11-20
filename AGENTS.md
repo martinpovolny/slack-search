@@ -87,11 +87,13 @@ errors; expired credentials are reported and retried at the next tick.
 For CLI-only use, `refresh --lookback N` runs a one-shot refresh. Use a larger
 lookback, such as 30 days, for a one-time gap fill.
 
-Every refresh re-reads history and re-fetches threads over each channel's scan
-window: the larger of the lookback and the channel's `deep_scan_days` (set
-with `channel-config` or the `slack_set_deep_scan` MCP tool). Incremental
-history alone never revisits a parent archived before its first reply, so do
-not filter thread catch-up on the cached `reply_count`. `fetch-thread` and the
+Every refresh re-reads history over the larger of the lookback and the
+channel's `deep_scan_days` (set with `channel-config` or the
+`slack_set_deep_scan` MCP tool). Threads whose parent is within
+`deep_scan_days` are always re-fetched; older ones only when Slack reports
+replies the archive lacks. Incremental history alone never revisits a parent
+archived before its first reply, so do not decide thread fetches from the
+cached `reply_count`. `fetch-thread` and the
 `slack_fetch_thread` MCP tool backfill one thread by permalink. Slack API call
 spacing defaults to one second and is set by `SLACK_SEARCH_API_INTERVAL` or
 `api_min_interval` in `~/.slack-search/config.json`. See
