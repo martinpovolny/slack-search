@@ -15,7 +15,9 @@
     launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.user.slack-refresh.plist  # resume
     tail -f /tmp/slack-refresh.log               # logs
 
-  Before using: update the path to slack-search below to match your install location.
+  Before using: launchd does not use your shell PATH, so the command below
+  calls slack-search by absolute path. The default matches `make install`
+  ($HOME/bin); change it if you installed elsewhere.
 -->
 <plist version="1.0">
 <dict>
@@ -26,7 +28,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
+        <string>"$HOME/bin/slack-search" refresh --curl-file ~/.slack-search/.curl --lookback 7 2&gt;&amp;1 | while IFS= read -r line; do printf '[%s] %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$line"; done</string>
     </array>
 
     <key>StartInterval</key>

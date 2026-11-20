@@ -83,7 +83,9 @@ single thread, run `slack-search fetch-thread <permalink>`. See
 [thread replies](docs/thread-sync.md) for the cost, the remaining limit, and
 how to change the one-second spacing between Slack API calls.
 
-On macOS, a launchd plist is included for hourly background refresh — see `com.user.slack-refresh.plist`.
+On macOS without `serve`, the example launchd job in
+`com.user.slack-refresh.plist` runs an hourly refresh; it expects the binary
+in `~/bin` (`make install`).
 
 ## AI Agent Integration
 
