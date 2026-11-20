@@ -9,11 +9,11 @@ import (
 
 // CurlCredentials holds credentials extracted from a Chrome "Copy as cURL" command.
 type CurlCredentials struct {
-	Token     string
-	Cookie    string // value of the 'd' cookie (xoxd-…)
+	Token      string
+	Cookie     string // value of the 'd' cookie (xoxd-…)
 	RawCookies string // full Cookie header value
-	Workspace string // e.g. redhat.enterprise.slack.com
-	ChannelID string
+	Workspace  string // e.g. redhat.enterprise.slack.com
+	ChannelID  string
 }
 
 var ansiCRe = regexp.MustCompile(`\$'((?:[^'\\]|\\.)*)'`)

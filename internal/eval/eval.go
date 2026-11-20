@@ -29,13 +29,13 @@ type SQLCheck struct {
 
 // TestResult holds the outcome of running one test.
 type TestResult struct {
-	ID       string       `json:"id"`
-	Question string       `json:"question"`
-	SQL      string       `json:"sql"`
-	Mode     string       `json:"mode"`
+	ID       string        `json:"id"`
+	Question string        `json:"question"`
+	SQL      string        `json:"sql"`
+	Mode     string        `json:"mode"`
 	Checks   []CheckResult `json:"checks"`
-	Passed   bool         `json:"passed"`
-	Error    string       `json:"error,omitempty"`
+	Passed   bool          `json:"passed"`
+	Error    string        `json:"error,omitempty"`
 }
 
 // CheckResult is one check's pass/fail status.

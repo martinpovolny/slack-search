@@ -53,8 +53,8 @@ func LoadRHTConfig() (*RHTConfig, error) {
 			continue
 		}
 		var raw struct {
-			URLTemplate string                `json:"url_template"`
-			Models      map[string]RHTModel   `json:"models"`
+			URLTemplate string              `json:"url_template"`
+			Models      map[string]RHTModel `json:"models"`
 		}
 		if err := json.Unmarshal(data, &raw); err != nil {
 			return nil, fmt.Errorf("parse %s: %w", p, err)
