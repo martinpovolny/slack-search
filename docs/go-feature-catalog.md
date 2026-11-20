@@ -35,6 +35,10 @@ Feature tracking for the Go reimplementation of slack-search.
 | **Other** |
 | F22 | Eval framework | done | done | JSON test cases, SQL checks, summary output |
 | F23 | Scheduled refresh (launchd) | done | done | Same plist works with Go binary |
+| F30 | Thread history re-scan on refresh | - | done | Re-reads history over the lookback window so parents archived before their first reply are re-fetched; see `docs/thread-sync.md` |
+| F31 | Per-channel deep scan (`channel-config`) | - | done | `channels.deep_scan_days`, CLI and MCP `slack_set_deep_scan` |
+| F32 | Fetch one thread by permalink | - | done | CLI `fetch-thread`, MCP `slack_fetch_thread` |
+| F33 | Configurable Slack API spacing | - | done | `SLACK_SEARCH_API_INTERVAL` or `api_min_interval` in config.json |
 
 ## Implementation Order
 

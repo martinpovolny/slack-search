@@ -41,6 +41,7 @@ func main() {
 	}
 
 	dbPath := defaultDBPath()
+	configureAPIInterval()
 
 	switch os.Args[1] {
 	case "download":
@@ -49,6 +50,10 @@ func main() {
 		cmdUnsubscribe(dbPath)
 	case "refresh":
 		cmdRefresh(dbPath)
+	case "fetch-thread":
+		cmdFetchThread(dbPath)
+	case "channel-config":
+		cmdChannelConfig(dbPath)
 	case "search":
 		cmdSearch(dbPath)
 	case "schema":
@@ -80,6 +85,26 @@ func main() {
 	}
 }
 
+// configureAPIInterval sets the minimum spacing between Slack API calls from
+// SLACK_SEARCH_API_INTERVAL, falling back to api_min_interval in config.json.
+func configureAPIInterval() {
+	value, source := os.Getenv("SLACK_SEARCH_API_INTERVAL"), "SLACK_SEARCH_API_INTERVAL"
+	if value == "" {
+		value, source = config.Load().APIMinInterval, "config.json api_min_interval"
+	}
+	if value == "" {
+		return
+	}
+	interval, err := slackclient.ParseMinInterval(value)
+	if err != nil {
+		log.Fatalf("%s: %v", source, err)
+	}
+	slackclient.DefaultMinInterval = interval
+	if interval != time.Second {
+		log.Printf("Slack API call spacing: %s (from %s)", interval, source)
+	}
+}
+
 func printUsage() {
 	fmt.Println(`slack-search — Local Slack Archive with SQL and Natural Language Search
 
@@ -87,6 +112,8 @@ Commands:
   download    Download messages from a Slack channel
   unsubscribe Stop refreshing a channel in the local archive
   refresh     Refresh all subscribed channels
+  fetch-thread Fetch one thread from Slack by permalink or channel + ts
+  channel-config Show or set per-channel options (deep-scan window)
   search      Run a raw SQL query
   schema      Show the database schema
   nlq         Natural language query (NL → SQL)
@@ -232,7 +259,7 @@ func cmdRefresh(dbPath string) {
 	var noThreads bool
 	var lookback int
 	fs.BoolVar(&noThreads, "no-threads", false, "Skip fetching thread replies")
-	fs.IntVar(&lookback, "lookback", 0, "Re-check threads from the last N days for new replies (0=skip)")
+	fs.IntVar(&lookback, "lookback", 0, "Re-scan history and threads from the last N days for new replies; channels with a larger deep-scan window use theirs (0=deep-scan channels only)")
 
 	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
 
@@ -252,16 +279,16 @@ func cmdRefresh(dbPath string) {
 		log.Fatal(err)
 	}
 
-	if lookback > 0 && !noThreads {
-		catchupCount, err := download.CatchupThreads(conn, client, lookback)
+	if !noThreads {
+		scanCount, err := download.ScanSubscribedChannels(conn, client, lookback)
 		if err != nil {
 			if slackclient.IsAuthError(err) {
 				fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
 				os.Exit(2)
 			}
-			log.Printf("Thread catchup error: %v", err)
-		} else if catchupCount > 0 {
-			fmt.Printf("Thread catchup: %d new reply(ies) from last %d day(s).\n", catchupCount, lookback)
+			log.Printf("Thread scan error: %v", err)
+		} else if scanCount > 0 {
+			fmt.Printf("Thread scan: %d new message(s).\n", scanCount)
 		}
 	}
 
@@ -271,6 +298,102 @@ func cmdRefresh(dbPath string) {
 	}
 	if _, err := download.DownloadCanvases(conn, client); err != nil {
 		log.Printf("Canvas refresh error: %v", err)
+	}
+}
+
+func cmdChannelConfig(dbPath string) {
+	fs := flag.NewFlagSet("channel-config", flag.ExitOnError)
+	var channel string
+	var deepScanDays int
+	fs.StringVar(&channel, "channel", "", "Channel name or ID (omit to list subscribed channels)")
+	fs.IntVar(&deepScanDays, "deep-scan-days", -1,
+		fmt.Sprintf("Days of history and threads every refresh re-scans for this channel (0 disables, max %d)", db.MaxDeepScanDays))
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		log.Fatal(err)
+	}
+
+	conn := openDB(dbPath)
+	defer conn.Close() //nolint:errcheck
+
+	if channel != "" && deepScanDays >= 0 {
+		channelID := db.LookupChannelID(conn, strings.TrimLeft(channel, "#"))
+		if channelID == "" {
+			channelID = strings.TrimLeft(channel, "#")
+		}
+		if err := db.SetDeepScanDays(conn, channelID, deepScanDays); err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	rows, err := conn.Query(`SELECT id, name, subscribed, deep_scan_days FROM channels
+		WHERE (? = '' AND subscribed = 1) OR id = ? OR name = ? ORDER BY name`,
+		channel, strings.TrimLeft(channel, "#"), strings.TrimLeft(channel, "#"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer rows.Close() //nolint:errcheck
+	fmt.Printf("%-14s %-32s %-10s %s\n", "ID", "NAME", "SUBSCRIBED", "DEEP_SCAN_DAYS")
+	for rows.Next() {
+		var id, name string
+		var subscribed, days int
+		if err := rows.Scan(&id, &name, &subscribed, &days); err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("%-14s %-32s %-10v %d\n", id, name, subscribed == 1, days)
+	}
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func cmdFetchThread(dbPath string) {
+	fs := flag.NewFlagSet("fetch-thread", flag.ExitOnError)
+	var channel, ts string
+	fs.StringVar(&channel, "channel", "", "Channel name or ID (when no permalink is given)")
+	fs.StringVar(&ts, "ts", "", "ts of the thread parent or any reply (when no permalink is given)")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: slack-search fetch-thread [flags] <permalink>\n       slack-search fetch-thread [flags] --channel C0123 --ts 1700000000.000100")
+		fs.PrintDefaults()
+	}
+
+	token, cookie, workspace, rawCookies, _ := parseCredentials(fs)
+	var linkedTS string
+	if fs.NArg() > 0 {
+		link, err := slackclient.ParsePermalink(fs.Arg(0))
+		if err != nil {
+			log.Fatal(err)
+		}
+		channel, ts, linkedTS = link.ChannelID, link.TS, link.TS
+		if link.ThreadTS != "" {
+			ts = link.ThreadTS
+		}
+	}
+	if channel == "" || ts == "" {
+		fs.Usage()
+		os.Exit(1)
+	}
+
+	conn := openDB(dbPath)
+	defer conn.Close() //nolint:errcheck
+	client := slackclient.NewClient(token, cookie, workspace, rawCookies)
+
+	channelID, channelName, err := download.ResolveChannel(client, channel, conn, "")
+	if err != nil {
+		log.Fatal(err)
+	}
+	result, err := download.FetchThread(conn, client, channelID, ts)
+	if err != nil {
+		if slackclient.IsAuthError(err) {
+			fmt.Fprintf(os.Stderr, "\nAuthentication failed: %v\n", err)
+			os.Exit(2)
+		}
+		log.Fatal(err)
+	}
+	fmt.Printf("#%s thread %s: %d reply(ies) on Slack, %d message(s) fetched, %d new.\n",
+		channelName, result.ThreadTS, result.ReplyCount, result.Fetched, result.NewMessages)
+	if linkedTS != "" {
+		archived, _ := db.MessageExists(conn, linkedTS, channelID)
+		fmt.Printf("Linked message %s archived: %v\n", linkedTS, archived)
 	}
 }
 
@@ -584,6 +707,8 @@ func cmdLiveSearch(dbPath string) {
 }
 
 func cmdMCP(dbPath string) {
+	// stdout carries the MCP protocol; download progress must go elsewhere.
+	download.Out = os.Stderr
 	conn := openDB(dbPath)
 	defer conn.Close() //nolint:errcheck
 
@@ -739,13 +864,13 @@ func cmdServe(dbPath string) {
 					if err != nil {
 						log.Printf("Refresh error: %v", err)
 					}
-					if lookback > 0 {
-						count, err := download.CatchupThreads(conn, slackClient, lookback)
-						if err != nil {
-							log.Printf("Thread catchup error: %v", err)
-						} else if count > 0 {
-							log.Printf("Thread catchup: %d new reply(ies)", count)
-						}
+					// Re-scan history and threads over each channel's window:
+					// max(lookback, channels.deep_scan_days).
+					count, err := download.ScanSubscribedChannels(conn, slackClient, lookback)
+					if err != nil {
+						log.Printf("Thread scan error: %v", err)
+					} else if count > 0 {
+						log.Printf("Thread scan: %d new message(s)", count)
 					}
 					// Bookmarks on every refresh (cheap)
 					if _, err := download.DownloadBookmarks(conn, slackClient); err != nil {

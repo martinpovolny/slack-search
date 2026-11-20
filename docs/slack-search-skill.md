@@ -102,7 +102,7 @@ messages(ts TEXT, channel_id TEXT, user_id TEXT, username TEXT, text TEXT,
   - timestamp: Unix epoch float (same value as ts, for range comparisons)
   - text: message body
 
-channels(id TEXT, name TEXT, subscribed INTEGER)
+channels(id TEXT, name TEXT, subscribed INTEGER, deep_scan_days INTEGER)
 
 users(id TEXT, name TEXT, real_name TEXT, display_name TEXT)
 
@@ -125,7 +125,8 @@ datetime(timestamp, 'unixepoch') converts timestamp to a readable string.
 CREATE TABLE channels (
     id         TEXT PRIMARY KEY,   -- Slack channel ID, e.g. C04476G1F7H
     name       TEXT NOT NULL,      -- channel name without #, e.g. cost-mgmt-dev
-    subscribed INTEGER DEFAULT 0   -- 1 = explicitly downloaded, 0 = from live-search
+    subscribed INTEGER DEFAULT 0,  -- 1 = explicitly downloaded, 0 = from live-search
+    deep_scan_days INTEGER DEFAULT 0  -- days of history and threads each refresh re-scans
 );
 
 -- Slack workspace members
@@ -232,6 +233,12 @@ SELECT * FROM messages
 WHERE reply_count > 0 AND (thread_ts IS NULL OR thread_ts = ts)
 ORDER BY reply_count DESC LIMIT 20
 ```
+
+A parent archived before its first reply can have `thread_ts IS NULL` and
+`reply_count = 0` while its replies are missing from the archive. If a thread
+or a permalinked message is missing, run `slack-search fetch-thread
+<permalink>` before concluding it does not exist; see `docs/thread-sync.md` in
+the slack-search repository.
 
 ---
 

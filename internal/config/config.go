@@ -10,6 +10,9 @@ type Config struct {
 	DefaultModel string   `json:"default_model"`
 	JiraURL      string   `json:"jira_url"`
 	JiraProjects []string `json:"jira_projects"`
+	// APIMinInterval is the minimum spacing between Slack API calls as a Go
+	// duration string such as "1s" or "500ms". Empty means the default (1s).
+	APIMinInterval string `json:"api_min_interval"`
 }
 
 // Load reads config from ~/.slack-search/config.json. Returns zero config if missing.

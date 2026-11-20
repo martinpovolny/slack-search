@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS channels (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
     subscribed INTEGER NOT NULL DEFAULT 0,
-    member_names TEXT NOT NULL DEFAULT '[]'
+    member_names TEXT NOT NULL DEFAULT '[]',
+    deep_scan_days INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -132,6 +133,7 @@ func migrate(db *sql.DB) error {
 
 	hasSubscribed := false
 	hasMemberNames := false
+	hasDeepScanDays := false
 	for rows.Next() {
 		var cid int
 		var name, typ string
@@ -147,6 +149,9 @@ func migrate(db *sql.DB) error {
 		if name == "member_names" {
 			hasMemberNames = true
 		}
+		if name == "deep_scan_days" {
+			hasDeepScanDays = true
+		}
 	}
 	if !hasSubscribed {
 		if _, err := db.Exec("ALTER TABLE channels ADD COLUMN subscribed INTEGER NOT NULL DEFAULT 0"); err != nil {
@@ -161,7 +166,41 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	if !hasDeepScanDays {
+		if _, err := db.Exec("ALTER TABLE channels ADD COLUMN deep_scan_days INTEGER NOT NULL DEFAULT 0"); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// MaxDeepScanDays bounds the per-channel deep-scan window.
+const MaxDeepScanDays = 365
+
+// SetDeepScanDays sets how many days of history and threads every refresh
+// re-scans for a channel (0 disables the per-channel deep scan).
+func SetDeepScanDays(db *sql.DB, channelID string, days int) error {
+	if days < 0 || days > MaxDeepScanDays {
+		return fmt.Errorf("deep scan days must be between 0 and %d", MaxDeepScanDays)
+	}
+	result, err := db.Exec("UPDATE channels SET deep_scan_days=? WHERE id=?", days, channelID)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("channel %s is not in the archive", channelID)
+	}
+	return nil
+}
+
+// DeepScanDays returns a channel's per-channel deep-scan window in days.
+func DeepScanDays(db *sql.DB, channelID string) (int, error) {
+	var days int
+	err := db.QueryRow("SELECT deep_scan_days FROM channels WHERE id=?", channelID).Scan(&days)
+	if err == sql.ErrNoRows {
+		return 0, nil
+	}
+	return days, err
 }
 
 // UpsertChannel inserts or updates a channel, preserving the subscribed flag.

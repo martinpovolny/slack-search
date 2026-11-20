@@ -140,24 +140,24 @@ func DownloadCanvases(conn *sql.DB, client *slackclient.Client) (int, error) {
 	}
 
 	if len(canvases) == 0 {
-		fmt.Println("No canvases found in subscribed channels.")
+		progressf("No canvases found in subscribed channels.\n")
 		return 0, nil
 	}
 
-	fmt.Printf("Found %d canvas(es) to download...\n", len(canvases))
+	progressf("Found %d canvas(es) to download...\n", len(canvases))
 
 	count := 0
 	for _, c := range canvases {
 		if c.QuipID == "" {
-			fmt.Printf("  #%s: no quip ID, skipping\n", c.ChannelName)
+			progressf("  #%s: no quip ID, skipping\n", c.ChannelName)
 			continue
 		}
 
-		fmt.Printf("  #%s (%s)... ", c.ChannelName, c.FileID)
+		progressf("  #%s (%s)... ", c.ChannelName, c.FileID)
 
 		raw, err := client.FetchCanvas(c.QuipID)
 		if err != nil {
-			fmt.Printf("failed: %v\n", err)
+			progressf("failed: %v\n", err)
 			continue
 		}
 
@@ -187,10 +187,10 @@ func DownloadCanvases(conn *sql.DB, client *slackclient.Client) (int, error) {
 			QuipID:      c.QuipID,
 			Title:       title,
 			ContentText: plainText,
-			ContentHTML:  htmlContent,
+			ContentHTML: htmlContent,
 			UpdatedAt:   float64(time.Now().Unix()),
 		}); err != nil {
-			fmt.Printf("insert error: %v\n", err)
+			progressf("insert error: %v\n", err)
 			continue
 		}
 
@@ -199,9 +199,9 @@ func DownloadCanvases(conn *sql.DB, client *slackclient.Client) (int, error) {
 		if len(titleDisplay) > 50 {
 			titleDisplay = titleDisplay[:50]
 		}
-		fmt.Printf("OK %d chars, title: %s\n", len(plainText), titleDisplay)
+		progressf("OK %d chars, title: %s\n", len(plainText), titleDisplay)
 	}
 
-	fmt.Printf("Done. %d canvas(es) downloaded.\n", count)
+	progressf("Done. %d canvas(es) downloaded.\n", count)
 	return count, nil
 }

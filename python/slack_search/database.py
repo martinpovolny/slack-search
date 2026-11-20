@@ -8,7 +8,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS channels (
     id         TEXT PRIMARY KEY,
     name       TEXT NOT NULL,
-    subscribed INTEGER NOT NULL DEFAULT 0
+    subscribed INTEGER NOT NULL DEFAULT 0,
+    member_names TEXT NOT NULL DEFAULT '[]',
+    deep_scan_days INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS users (
@@ -85,6 +87,14 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(
             "UPDATE channels SET subscribed=1 WHERE id IN (SELECT channel_id FROM download_state)"
         )
+        conn.commit()
+    if "member_names" not in cols:
+        # JSON list of member display names, maintained by the Go version.
+        conn.execute("ALTER TABLE channels ADD COLUMN member_names TEXT NOT NULL DEFAULT '[]'")
+        conn.commit()
+    if "deep_scan_days" not in cols:
+        # Per-channel window (days) that the Go refresh re-scans for thread replies.
+        conn.execute("ALTER TABLE channels ADD COLUMN deep_scan_days INTEGER NOT NULL DEFAULT 0")
         conn.commit()
 
 

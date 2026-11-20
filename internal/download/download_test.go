@@ -164,3 +164,78 @@ func TestCatchupThreadsRefreshesThreadWhenCachedReplyCountMatches(t *testing.T) 
 		t.Fatalf("parent reply count = %d, want 4", replyCount)
 	}
 }
+
+// A parent archived before its first reply keeps reply_count=0, so the
+// lookback catch-up never re-fetches it. FetchThread must backfill the thread
+// from a reply's ts (as given by a permalink) regardless of the cached count.
+func TestFetchThreadBackfillsThreadOfStaleParent(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "messages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	const channelID = "C12345678"
+	const parentTS = "1000.000001"
+	if err := db.UpsertChannel(conn, channelID, "test-channel"); err != nil {
+		t.Fatal(err)
+	}
+	insertTestMessage(t, conn, db.Message{TS: parentTS, ChannelID: channelID, Timestamp: 1000, Text: "parent", RawJSON: json.RawMessage(`{"ts":"1000.000001"}`)})
+
+	client := &fakeThreadClient{replies: json.RawMessage(`{
+  "ok": true,
+  "messages": [
+    {"ts":"1000.000001","thread_ts":"1000.000001","reply_count":2,"text":"parent"},
+    {"ts":"1001.000001","thread_ts":"1000.000001","user":"U1","text":"first"},
+    {"ts":"1002.000001","thread_ts":"1000.000001","attachments":[{"text":"attachment only"}]}
+  ],
+  "has_more": false
+}`)}
+
+	result, err := FetchThread(conn, client, channelID, "1002.000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := ThreadFetchResult{ChannelID: channelID, ThreadTS: parentTS, ReplyCount: 2, Fetched: 3, NewMessages: 2}
+	if result != want {
+		t.Fatalf("result = %+v, want %+v", result, want)
+	}
+	var replyCount int
+	if err := conn.QueryRow("SELECT reply_count FROM messages WHERE ts=? AND channel_id=?", parentTS, channelID).Scan(&replyCount); err != nil {
+		t.Fatal(err)
+	}
+	if replyCount != 2 {
+		t.Fatalf("parent reply_count = %d, want 2", replyCount)
+	}
+	var text string
+	if err := conn.QueryRow("SELECT text FROM messages WHERE ts='1002.000001'").Scan(&text); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "attachment only") {
+		t.Fatalf("attachment-only reply text = %q", text)
+	}
+}
+
+func TestFetchThreadSetsMissingParentThreadTS(t *testing.T) {
+	conn, err := db.Open(filepath.Join(t.TempDir(), "messages.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	const channelID = "C12345678"
+	if err := db.UpsertChannel(conn, channelID, "test-channel"); err != nil {
+		t.Fatal(err)
+	}
+	insertTestMessage(t, conn, db.Message{TS: "1000.000001", ChannelID: channelID, Timestamp: 1000, Text: "parent"})
+	client := &fakeThreadClient{replies: json.RawMessage(`{"ok":true,"messages":[{"ts":"1000.000001","thread_ts":"1000.000001","reply_count":0,"text":"parent"}]}`)}
+	if _, err := FetchThread(conn, client, channelID, "1000.000001"); err != nil {
+		t.Fatal(err)
+	}
+	var threadTS string
+	if err := conn.QueryRow("SELECT COALESCE(thread_ts,'') FROM messages WHERE ts='1000.000001'").Scan(&threadTS); err != nil {
+		t.Fatal(err)
+	}
+	if threadTS != "1000.000001" {
+		t.Fatalf("parent thread_ts = %q, want 1000.000001", threadTS)
+	}
+}

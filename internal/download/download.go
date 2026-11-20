@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +13,15 @@ import (
 	"github.com/martinpovolny/slack-search/internal/db"
 	slackclient "github.com/martinpovolny/slack-search/internal/slack"
 )
+
+// Out receives human-readable progress output. The MCP server redirects it to
+// stderr so progress lines cannot corrupt the stdio protocol stream.
+var Out io.Writer = os.Stdout
+
+// progressf writes a progress line to Out. Progress output is best effort.
+func progressf(format string, args ...interface{}) {
+	_, _ = fmt.Fprintf(Out, format, args...)
+}
 
 type Options struct {
 	FetchThreads bool
@@ -209,7 +220,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 	if oldest != "" {
 		label = "new messages since last run"
 	}
-	fmt.Printf("  Downloading #%s (%s)…\n", channelName, label)
+	progressf("  Downloading #%s (%s)…\n", channelName, label)
 
 	var firstTS, lastTS string
 	threadsToFetch := []string{}
@@ -246,11 +257,7 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 		}
 
 		for _, msg := range resp.Messages {
-			subtype, _ := msg["subtype"].(string)
-			if subtype == "channel_join" || subtype == "channel_leave" {
-				continue
-			}
-			if subtype == "bot_message" && messageText(msg) == "" {
+			if skipHistoryMessage(msg) {
 				continue
 			}
 
@@ -289,8 +296,13 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 
 	// Fetch thread replies
 	for _, threadTS := range threadsToFetch {
-		fmt.Printf("    Fetching thread %s…\n", threadTS)
-		fetchReplies(conn, client, channelID, threadTS, storeMessage)
+		progressf("    Fetching thread %s…\n", threadTS)
+		if err := fetchReplies(client, channelID, threadTS, storeMessage); err != nil {
+			if slackclient.IsAuthError(err) {
+				return newCount, err
+			}
+			progressf("    ✗ thread %s: %v\n", threadTS, err)
+		}
 	}
 
 	// Update download state
@@ -301,9 +313,20 @@ func Download(conn *sql.DB, client *slackclient.Client, channelID, channelName s
 	return newCount, nil
 }
 
-func fetchReplies(conn *sql.DB, client repliesClient, channelID, threadTS string, store func(map[string]interface{}) (bool, bool)) {
+// skipHistoryMessage reports whether a history message is noise the archive
+// does not keep: join/leave notices and empty bot posts.
+func skipHistoryMessage(msg map[string]interface{}) bool {
+	subtype, _ := msg["subtype"].(string)
+	if subtype == "channel_join" || subtype == "channel_leave" {
+		return true
+	}
+	return subtype == "bot_message" && messageText(msg) == ""
+}
+
+// fetchReplies pages through conversations.replies and passes the parent and
+// every reply to store. The first message of the first page is the parent.
+func fetchReplies(client repliesClient, channelID, threadTS string, store func(map[string]interface{}) (bool, bool)) error {
 	cursor := ""
-	firstPage := true
 	for {
 		params := map[string]string{
 			"channel": channelID,
@@ -316,7 +339,7 @@ func fetchReplies(conn *sql.DB, client repliesClient, channelID, threadTS string
 
 		data, err := client.ConversationsReplies(params)
 		if err != nil {
-			return
+			return fmt.Errorf("conversations.replies %s: %w", threadTS, err)
 		}
 
 		var resp struct {
@@ -326,30 +349,143 @@ func fetchReplies(conn *sql.DB, client repliesClient, channelID, threadTS string
 				NextCursor string `json:"next_cursor"`
 			} `json:"response_metadata"`
 		}
-		if json.Unmarshal(data, &resp) != nil {
-			return
+		if err := json.Unmarshal(data, &resp); err != nil {
+			return fmt.Errorf("parse replies %s: %w", threadTS, err)
 		}
 
-		msgs := resp.Messages
-		if firstPage && len(msgs) > 0 {
-			// Re-store the parent so its reply count is refreshed from the
-			// authoritative thread response, then avoid counting it as a reply.
-			store(msgs[0])
-			msgs = msgs[1:]
-		}
-		firstPage = false
-
-		for _, msg := range msgs {
+		// The parent is re-stored too, so its reply count is refreshed from
+		// the authoritative thread response.
+		for _, msg := range resp.Messages {
 			store(msg)
 		}
 
 		if !resp.HasMore {
-			break
+			return nil
 		}
 		cursor = resp.ResponseMetadata.NextCursor
 		if cursor == "" {
-			break
+			return nil
 		}
+	}
+}
+
+// ThreadFetchResult summarises a single-thread fetch.
+type ThreadFetchResult struct {
+	ChannelID   string `json:"channel_id"`
+	ThreadTS    string `json:"thread_ts"`
+	ReplyCount  int    `json:"reply_count"`
+	Fetched     int    `json:"fetched_messages"`
+	NewMessages int    `json:"new_messages"`
+}
+
+// FetchThread fetches one thread from Slack and stores the parent and all of
+// its replies, regardless of the cached reply_count. ts may be the parent ts
+// or the ts of any reply in the thread; Slack returns the whole thread either
+// way. Use it to backfill a thread referenced by a permalink.
+func FetchThread(conn *sql.DB, client threadCatchupClient, channelID, ts string) (ThreadFetchResult, error) {
+	result := ThreadFetchResult{ChannelID: channelID, ThreadTS: ts}
+	if channelID == "" || ts == "" {
+		return result, fmt.Errorf("channel ID and message ts are required")
+	}
+	store := threadStore(conn, client, channelID, &result.NewMessages)
+	err := fetchReplies(client, channelID, ts, func(msg map[string]interface{}) (bool, bool) {
+		result.Fetched++
+		if threadTS, _ := msg["thread_ts"].(string); threadTS != "" {
+			result.ThreadTS = threadTS
+		}
+		if rc, ok := msg["reply_count"].(float64); ok {
+			result.ReplyCount = int(rc)
+		}
+		return store(msg)
+	})
+	return result, err
+}
+
+// threadStore returns a store callback for conversations.replies messages.
+// Existing messages get their text, raw JSON and reply count refreshed; new
+// messages are inserted and counted in newCount. Authors are cached on first
+// sight so formatted threads show names rather than user IDs.
+func threadStore(conn *sql.DB, client threadCatchupClient, channelID string, newCount *int) func(map[string]interface{}) (bool, bool) {
+	seenUsers := map[string]bool{}
+	return func(msg map[string]interface{}) (bool, bool) {
+		ts, _ := msg["ts"].(string)
+		if ts == "" {
+			return false, false
+		}
+		text := messageText(msg)
+		rawJSON, _ := json.Marshal(msg)
+		_, hasReplyCount := msg["reply_count"].(float64)
+		replyCount := 0
+		if rc, ok := msg["reply_count"].(float64); ok {
+			replyCount = int(rc)
+		}
+
+		threadTS, _ := msg["thread_ts"].(string)
+		exists, _ := db.MessageExists(conn, ts, channelID)
+		if exists {
+			if threadTS != "" {
+				// A parent archived before its first reply has no thread_ts.
+				_, _ = conn.Exec(
+					"UPDATE messages SET thread_ts=? WHERE ts=? AND channel_id=? AND COALESCE(thread_ts, '')=''",
+					threadTS, ts, channelID,
+				)
+			}
+			if hasReplyCount {
+				_, _ = conn.Exec(
+					"UPDATE messages SET reply_count=?, raw_json=? WHERE ts=? AND channel_id=?",
+					replyCount, rawJSON, ts, channelID,
+				)
+			}
+			if text != "" {
+				_, _ = conn.Exec(
+					"UPDATE messages SET text=?, raw_json=? WHERE ts=? AND channel_id=?",
+					text, rawJSON, ts, channelID,
+				)
+			}
+			return false, false
+		}
+
+		userID, _ := msg["user"].(string)
+		if userID != "" && !seenUsers[userID] {
+			seenUsers[userID] = true
+			cacheUserIfMissing(conn, client, userID)
+		}
+		username, _ := msg["username"].(string)
+		tsFloat, _ := strconv.ParseFloat(ts, 64)
+
+		inserted, _ := db.InsertMessage(conn, db.Message{
+			TS: ts, ChannelID: channelID, UserID: userID, Username: username,
+			Text: text, Timestamp: tsFloat, ThreadTS: threadTS,
+			ReplyCount: replyCount, RawJSON: rawJSON,
+		})
+		if inserted {
+			*newCount++
+		}
+		return inserted, false
+	}
+}
+
+func cacheUserIfMissing(conn *sql.DB, client threadCatchupClient, userID string) {
+	var n int
+	if err := conn.QueryRow("SELECT COUNT(*) FROM users WHERE id=?", userID).Scan(&n); err == nil && n > 0 {
+		return
+	}
+	data, err := client.UsersInfo(userID)
+	if err != nil {
+		return
+	}
+	var resp struct {
+		User struct {
+			ID      string `json:"id"`
+			Name    string `json:"name"`
+			Profile struct {
+				RealName    string `json:"real_name"`
+				DisplayName string `json:"display_name"`
+			} `json:"profile"`
+		} `json:"user"`
+	}
+	if json.Unmarshal(data, &resp) == nil && resp.User.ID != "" {
+		_ = db.UpsertUser(conn, resp.User.ID, resp.User.Name, resp.User.Profile.RealName, resp.User.Profile.DisplayName)
 	}
 }
 
@@ -477,56 +613,22 @@ func catchupThreads(conn *sql.DB, client threadCatchupClient, lookbackDays int, 
 		return 0, nil
 	}
 
-	fmt.Printf("Checking %d thread(s) in last %d day(s)…\n", len(threads), lookbackDays)
+	progressf("Checking %d thread(s) in last %d day(s)…\n", len(threads), lookbackDays)
 	newCount := 0
 
 	for _, t := range threads {
-		fmt.Printf("  #%s thread %s: re-fetching (cached %d replies)…\n", t.channelName, t.ts, t.storedRC)
+		progressf("  #%s thread %s: re-fetching (cached %d replies)…\n", t.channelName, t.ts, t.storedRC)
 
-		storeReply := func(msg map[string]interface{}) (bool, bool) {
-			ts, _ := msg["ts"].(string)
-			if ts == "" {
-				return false, false
+		store := threadStore(conn, client, t.channelID, &newCount)
+		if err := fetchReplies(client, t.channelID, t.ts, store); err != nil {
+			if slackclient.IsAuthError(err) {
+				return newCount, err
 			}
-			exists, _ := db.MessageExists(conn, ts, t.channelID)
-			if exists {
-				if ts == t.ts {
-					if rc, ok := msg["reply_count"].(float64); ok {
-						rawJSON, _ := json.Marshal(msg)
-						_, _ = conn.Exec(
-							"UPDATE messages SET reply_count=?, raw_json=? WHERE ts=? AND channel_id=?",
-							int(rc), rawJSON, ts, t.channelID,
-						)
-					}
-				}
-				return false, false
-			}
-			userID, _ := msg["user"].(string)
-			username, _ := msg["username"].(string)
-			text, _ := msg["text"].(string)
-			threadTS, _ := msg["thread_ts"].(string)
-			replyCount := 0
-			if rc, ok := msg["reply_count"].(float64); ok {
-				replyCount = int(rc)
-			}
-			tsFloat, _ := strconv.ParseFloat(ts, 64)
-			rawJSON, _ := json.Marshal(msg)
-
-			inserted, _ := db.InsertMessage(conn, db.Message{
-				TS: ts, ChannelID: t.channelID, UserID: userID, Username: username,
-				Text: text, Timestamp: tsFloat, ThreadTS: threadTS,
-				ReplyCount: replyCount, RawJSON: rawJSON,
-			})
-			if inserted {
-				newCount++
-			}
-			return inserted, false
+			progressf("    ✗ %v\n", err)
 		}
-
-		fetchReplies(conn, client, t.channelID, t.ts, storeReply)
 	}
 
-	fmt.Printf("Thread catchup done. %d new reply(ies) found.\n", newCount)
+	progressf("Thread catchup done. %d new reply(ies) found.\n", newCount)
 	return newCount, nil
 }
 
@@ -537,24 +639,24 @@ func Refresh(conn *sql.DB, client *slackclient.Client, opts Options) (int, error
 		return 0, err
 	}
 	if len(channels) == 0 {
-		fmt.Println("No subscribed channels. Run 'download' first.")
+		progressf("No subscribed channels. Run 'download' first.\n")
 		return 0, nil
 	}
 
 	totalNew := 0
 	for _, ch := range channels {
-		fmt.Printf("\n#%s (%s)\n", ch.Name, ch.ID)
+		progressf("\n#%s (%s)\n", ch.Name, ch.ID)
 		count, err := Download(conn, client, ch.ID, ch.Name, opts)
 		if err != nil {
 			if slackclient.IsAuthError(err) {
 				return totalNew, err
 			}
-			fmt.Printf("  ✗ Error: %v\n", err)
+			progressf("  ✗ Error: %v\n", err)
 			continue
 		}
-		fmt.Printf("  ✓ %d new message(s)\n", count)
+		progressf("  ✓ %d new message(s)\n", count)
 		totalNew += count
 	}
-	fmt.Printf("\nDone. %d new message(s) across %d subscribed channel(s).\n", totalNew, len(channels))
+	progressf("\nDone. %d new message(s) across %d subscribed channel(s).\n", totalNew, len(channels))
 	return totalNew, nil
 }

@@ -19,7 +19,7 @@ import (
 
 // Serve starts the MCP server on stdio.
 func Serve(db *sql.DB, client *slackclient.Client) error {
-	s := server.NewMCPServer("slack-search", "1.0.0")
+	s := server.NewMCPServer("slack-search", "1.0.0", server.WithInstructions(instructions))
 
 	s.AddTool(toolGrep(), handleGrep(db))
 	s.AddTool(toolSQL(), handleSQL(db))
@@ -29,17 +29,122 @@ func Serve(db *sql.DB, client *slackclient.Client) error {
 	s.AddTool(toolBookmarks(), handleBookmarks(db))
 	s.AddTool(toolCanvases(), handleCanvases(db))
 	s.AddTool(toolRefreshChannel(), handleRefreshChannel(db, client))
+	s.AddTool(toolFetchThread(), handleFetchThread(db, client))
+	s.AddTool(toolSetDeepScan(), handleSetDeepScan(db))
 
 	return server.ServeStdio(s)
+}
+
+const instructions = `slack-search tools read a local SQLite archive of Slack channels; only slack_refresh_channel and slack_fetch_thread contact Slack.
+
+Known archive gap: a thread whose parent was archived before its first reply can be missing entirely. Incremental refresh only reads channel history newer than the last stored message, and the thread lookback only re-checks parents whose cached reply_count is above zero, so such a parent stays at reply_count=0 and its replies are never fetched. Symptoms: slack_thread returns no replies, or a permalinked message is absent from slack_grep and slack_sql although its parent is archived.
+
+When a user supplies a Slack permalink, or a thread looks incomplete, call slack_fetch_thread (with the permalink, or channel plus ts) before concluding that a message does not exist, then read it with slack_thread.`
+
+// --- slack_set_deep_scan ---
+
+func toolSetDeepScan() mcp.Tool {
+	return mcp.NewTool("slack_set_deep_scan",
+		mcp.WithDescription(fmt.Sprintf("Set a channel's deep-scan window: every refresh re-reads that many days of channel history and re-fetches every thread with replies in it, so late replies to older threads are archived. Costs one Slack call per 200 messages plus one per thread in the window. 0 disables it (the global lookback still applies). Maximum %d. Local setting only; does not contact Slack.", db.MaxDeepScanDays)),
+		mcp.WithString("channel", mcp.Required(), mcp.Description("Channel name or ID already in the archive")),
+		mcp.WithNumber("days", mcp.Required(), mcp.Description("Deep-scan window in days (0 disables)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(false),
+	)
+}
+
+func handleSetDeepScan(conn *sql.DB) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		channel, _ := req.GetArguments()["channel"].(string)
+		days, ok := req.GetArguments()["days"].(float64)
+		if channel == "" || !ok || days != float64(int(days)) {
+			return mcp.NewToolResultError("channel and an integer days are required"), nil
+		}
+		channelID := db.LookupChannelID(conn, strings.TrimLeft(channel, "#"))
+		if channelID == "" {
+			channelID = strings.TrimLeft(channel, "#")
+		}
+		if err := db.SetDeepScanDays(conn, channelID, int(days)); err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
+		}
+		data, _ := json.Marshal(map[string]interface{}{"channel_id": channelID, "deep_scan_days": int(days)})
+		return mcp.NewToolResultText(string(data)), nil
+	}
+}
+
+// --- slack_fetch_thread ---
+
+func toolFetchThread() mcp.Tool {
+	return mcp.NewTool("slack_fetch_thread",
+		mcp.WithDescription("Fetch one Slack thread directly from Slack into the local archive, regardless of cached reply counts. Accepts a message permalink, or a channel plus the ts of the parent or of any reply. Use it when a permalinked message is missing from the archive or slack_thread shows an incomplete thread, then read the thread with slack_thread. Requires ~/.slack-search/.curl credentials."),
+		mcp.WithString("permalink", mcp.Description("Slack message permalink, e.g. https://<workspace>.slack.com/archives/C0123/p1700000123456789?thread_ts=1700000000.000100")),
+		mcp.WithString("channel", mcp.Description("Channel name or ID (when no permalink is given)")),
+		mcp.WithString("ts", mcp.Description("ts of the thread parent or of any reply (when no permalink is given)")),
+		mcp.WithReadOnlyHintAnnotation(false),
+		mcp.WithDestructiveHintAnnotation(false),
+		mcp.WithIdempotentHintAnnotation(true),
+		mcp.WithOpenWorldHintAnnotation(true),
+	)
+}
+
+func handleFetchThread(conn *sql.DB, client *slackclient.Client) server.ToolHandlerFunc {
+	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if client == nil {
+			return mcp.NewToolResultError("Slack credentials are unavailable. Add a valid ~/.slack-search/.curl and restart the MCP server."), nil
+		}
+		args := req.GetArguments()
+		permalink, _ := args["permalink"].(string)
+		channel, _ := args["channel"].(string)
+		ts, _ := args["ts"].(string)
+
+		var linkedTS string
+		if permalink != "" {
+			link, err := slackclient.ParsePermalink(permalink)
+			if err != nil {
+				return mcp.NewToolResultError(err.Error()), nil
+			}
+			channel, ts, linkedTS = link.ChannelID, link.TS, link.TS
+			if link.ThreadTS != "" {
+				ts = link.ThreadTS
+			}
+		}
+		if channel == "" || ts == "" {
+			return mcp.NewToolResultError("provide permalink, or both channel and ts"), nil
+		}
+
+		channelID, channelName, err := download.ResolveChannel(client, channel, conn, "")
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("resolve channel: %v", err)), nil
+		}
+		fetched, err := download.FetchThread(conn, client, channelID, ts)
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("fetch thread: %v", err)), nil
+		}
+
+		result := struct {
+			Channel string `json:"channel"`
+			download.ThreadFetchResult
+			LinkedTS       string `json:"linked_ts,omitempty"`
+			LinkedArchived *bool  `json:"linked_message_archived,omitempty"`
+		}{Channel: channelName, ThreadFetchResult: fetched, LinkedTS: linkedTS}
+		if linkedTS != "" {
+			archived, _ := db.MessageExists(conn, linkedTS, channelID)
+			result.LinkedArchived = &archived
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		return mcp.NewToolResultText(string(data)), nil
+	}
 }
 
 // --- slack_refresh_channel ---
 
 func toolRefreshChannel() mcp.Tool {
 	return mcp.NewTool("slack_refresh_channel",
-		mcp.WithDescription("Fetch the latest messages for one Slack channel into the local archive, then re-fetch recent threads to capture replies that arrived after the last index. Requires ~/.slack-search/.curl credentials."),
+		mcp.WithDescription("Fetch the latest messages for one Slack channel into the local archive, then re-read channel history over the scan window and re-fetch every thread with replies in it, so replies to older parents are captured. The scan window is max(lookback_days, the channel's deep_scan_days). Threads whose parent is older than the window are not re-checked; use slack_fetch_thread for those. Requires ~/.slack-search/.curl credentials."),
 		mcp.WithString("channel", mcp.Required(), mcp.Description("Channel name or ID to refresh")),
-		mcp.WithNumber("lookback_days", mcp.Description("Days of recent threads to re-fetch (default 7, maximum 30)")),
+		mcp.WithNumber("lookback_days", mcp.Description("Days of history and threads to re-scan (default 7, maximum 30); a larger per-channel deep_scan_days takes precedence")),
 		mcp.WithReadOnlyHintAnnotation(false),
 		mcp.WithDestructiveHintAnnotation(false),
 		mcp.WithIdempotentHintAnnotation(true),
@@ -75,23 +180,30 @@ func handleRefreshChannel(conn *sql.DB, client *slackclient.Client) server.ToolH
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("refresh channel: %v", err)), nil
 		}
-		threadReplyCount, err := download.CatchupChannelThreads(conn, client, channelID, lookbackDays)
+		scanDays := download.ScanWindowDays(conn, channelID, lookbackDays)
+		scan, err := download.ScanChannelThreads(conn, client, channelID, scanDays)
 		if err != nil {
-			return mcp.NewToolResultError(fmt.Sprintf("refresh recent threads: %v", err)), nil
+			return mcp.NewToolResultError(fmt.Sprintf("re-scan recent history and threads: %v", err)), nil
 		}
 
 		result := struct {
-			Channel          string `json:"channel"`
-			ChannelID        string `json:"channel_id"`
-			NewMessages      int    `json:"new_messages"`
-			NewThreadReplies int    `json:"new_thread_replies"`
-			LookbackDays     int    `json:"lookback_days"`
+			Channel             string `json:"channel"`
+			ChannelID           string `json:"channel_id"`
+			NewMessages         int    `json:"new_messages"`
+			NewThreadReplies    int    `json:"new_thread_replies"`
+			LookbackDays        int    `json:"lookback_days"`
+			ScanDays            int    `json:"scan_days"`
+			HistoryRescanned    int    `json:"history_messages_rescanned"`
+			NewMessagesInRescan int    `json:"new_messages_in_rescan"`
 		}{
-			Channel:          channelName,
-			ChannelID:        channelID,
-			NewMessages:      messageCount,
-			NewThreadReplies: threadReplyCount,
-			LookbackDays:     lookbackDays,
+			Channel:             channelName,
+			ChannelID:           channelID,
+			NewMessages:         messageCount,
+			NewThreadReplies:    scan.NewThreadReplies,
+			LookbackDays:        lookbackDays,
+			ScanDays:            scanDays,
+			HistoryRescanned:    scan.HistoryMessages,
+			NewMessagesInRescan: scan.NewMessages,
 		}
 		data, _ := json.MarshalIndent(result, "", "  ")
 		return mcp.NewToolResultText(string(data)), nil
@@ -232,11 +344,11 @@ func handleThread(db *sql.DB) server.ToolHandlerFunc {
 			       m.ts
 			FROM messages m
 			LEFT JOIN users u ON m.user_id = u.id
-			WHERE m.thread_ts = ? AND %s
+			WHERE (m.thread_ts = ? OR m.ts = ?) AND %s
 			ORDER BY m.timestamp
 		`, channelClause)
 
-		rows, err := db.Query(query, threadTS, channelArg)
+		rows, err := db.Query(query, threadTS, threadTS, channelArg)
 		if err != nil {
 			return mcp.NewToolResultError(fmt.Sprintf("query error: %v", err)), nil
 		}
@@ -292,7 +404,7 @@ func handleThread(db *sql.DB) server.ToolHandlerFunc {
 
 func toolChannels() mcp.Tool {
 	return mcp.NewTool("slack_channels",
-		mcp.WithDescription("List subscribed Slack channels in the archive (channels with complete message history)."),
+		mcp.WithDescription("List subscribed Slack channels in the archive (channels with complete message history). deep_scan_days, when present, is the channel's per-channel history and thread re-scan window."),
 		mcp.WithReadOnlyHintAnnotation(true),
 		mcp.WithDestructiveHintAnnotation(false),
 	)
@@ -300,7 +412,7 @@ func toolChannels() mcp.Tool {
 
 func handleChannels(db *sql.DB) server.ToolHandlerFunc {
 	return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		rows, err := db.Query("SELECT id, name FROM channels WHERE subscribed=1 ORDER BY name")
+		rows, err := db.Query("SELECT id, name, deep_scan_days FROM channels WHERE subscribed=1 ORDER BY name")
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
@@ -309,13 +421,14 @@ func handleChannels(db *sql.DB) server.ToolHandlerFunc {
 		}()
 
 		type ch struct {
-			ID   string `json:"id"`
-			Name string `json:"name"`
+			ID           string `json:"id"`
+			Name         string `json:"name"`
+			DeepScanDays int    `json:"deep_scan_days,omitempty"`
 		}
 		var channels []ch
 		for rows.Next() {
 			var c ch
-			if rows.Scan(&c.ID, &c.Name) == nil {
+			if rows.Scan(&c.ID, &c.Name, &c.DeepScanDays) == nil {
 				channels = append(channels, c)
 			}
 		}

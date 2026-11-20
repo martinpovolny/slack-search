@@ -11,6 +11,8 @@ _slack-search() {
   commands=(
     'download:Download messages from a Slack channel'
     'refresh:Refresh all subscribed channels'
+    'fetch-thread:Fetch one thread by permalink or channel + ts'
+    'channel-config:Show or set per-channel options'
     'search:Run a raw SQL query'
     'schema:Show the database schema'
     'nlq:Natural language query (NL → SQL)'
@@ -47,7 +49,20 @@ _slack-search() {
             '--token[Slack token]:token:' \
             '--cookie[Session cookie]:cookie:' \
             '--workspace[Workspace hostname]:hostname:' \
+            '--lookback[Re-scan history and threads from the last N days]:days:' \
             '--no-threads[Skip fetching thread replies]'
+          ;;
+        fetch-thread)
+          _arguments \
+            '--curl-file[Path to .curl file]:file:_files' \
+            '--channel[Channel name or ID]:channel:_slack_search_channels' \
+            '--ts[ts of the parent or any reply]:ts:' \
+            '1:permalink:'
+          ;;
+        channel-config)
+          _arguments \
+            '--channel[Channel name or ID]:channel:_slack_search_channels' \
+            '--deep-scan-days[Days of history and threads to re-scan (0 disables)]:days:'
           ;;
         search)
           _arguments \

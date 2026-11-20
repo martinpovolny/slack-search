@@ -3,7 +3,6 @@ package download
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 
 	"github.com/martinpovolny/slack-search/internal/db"
@@ -61,10 +60,10 @@ func DownloadBookmarks(conn *sql.DB, client *slackclient.Client) (int, error) {
 			count++
 		}
 		if count > 0 {
-			fmt.Printf("  #%s: %d bookmark(s)\n", ch.Name, count)
+			progressf("  #%s: %d bookmark(s)\n", ch.Name, count)
 			total += count
 		}
 	}
-	fmt.Printf("Done. %d bookmark(s) across %d channel(s).\n", total, len(channels))
+	progressf("Done. %d bookmark(s) across %d channel(s).\n", total, len(channels))
 	return total, nil
 }

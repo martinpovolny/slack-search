@@ -95,7 +95,44 @@ Fetch all messages in a thread by the parent message timestamp. Use after findin
 
 List subscribed channels — the ones with complete message history.
 
-No parameters. Returns `[{id, name}]`.
+No parameters. Returns `[{id, name, deep_scan_days}]`; `deep_scan_days` is
+omitted when it is zero.
+
+### `slack_refresh_channel`
+
+Fetch new messages for one channel, then re-read its history and re-fetch its
+threads over the scan window: `lookback_days` (default 7, maximum 30) or the
+channel's `deep_scan_days`, whichever is larger. Requires `~/.slack-search/.curl`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `channel` | string | yes | Channel name or ID |
+| `lookback_days` | number | no | Days of history and threads to re-scan |
+
+### `slack_fetch_thread`
+
+Fetch one thread from Slack into the archive, regardless of cached reply
+counts. Use it when a permalinked message is missing or a thread looks
+incomplete, then read it with `slack_thread`. Requires `~/.slack-search/.curl`.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `permalink` | string | no | Slack message permalink |
+| `channel` | string | no | Channel name or ID, when no permalink is given |
+| `ts` | string | no | ts of the parent or any reply, when no permalink is given |
+
+Returns the thread ts, Slack's reply count, how many messages were fetched and
+stored, and whether the permalinked message is now archived.
+
+### `slack_set_deep_scan`
+
+Set a channel's per-channel scan window in days (0 disables, maximum 365).
+Local setting only. See [thread replies](thread-sync.md) for the cost.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `channel` | string | yes | Channel name or ID already in the archive |
+| `days` | number | yes | Deep-scan window in days |
 
 ### `slack_schema`
 
@@ -109,7 +146,9 @@ A typical agent workflow:
 
 1. **`slack_channels`** — see what channels are available
 2. **`slack_grep`** — find messages about the topic
-3. **`slack_thread`** — read the full discussion for an interesting result
+3. **`slack_thread`** — read the full discussion for an interesting result;
+   if a permalinked message or reply is missing, call **`slack_fetch_thread`**
+   first
 4. **`slack_sql`** — aggregate data (counts, rankings, time series)
 
 The agent calls `slack_schema` before writing SQL to get the correct table definitions and SQLite syntax.

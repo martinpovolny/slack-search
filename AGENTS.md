@@ -31,17 +31,18 @@ here so the instructions stay in one place.
 ## Build and run
 
 - Build the Go binary: `make build` (outputs `bin/slack-search`).
-- Build frontend source: from `ui/ui/`, run `npm ci` and `npm run build`.
+- Build the frontend and refresh the embedded assets: `make ui-build`.
+- Build everything: `make all`. Install into `~/bin`: `make install`
+  (`INSTALL_DIR=...` overrides the target).
 - Run the backend: `go run ./cmd/slack-search serve` (default port 8088).
 - Run the frontend in development: from `ui/ui/`, run `npm run dev` (port 5173).
 - Run the compiled binary: `./bin/slack-search`.
 
-The Makefile currently sets `UI_DIR := ./ui`, but the npm project is in
-`ui/ui/`. Its `all`, `ui-build`, and `dev` targets therefore need attention
-before use. Vite builds into `ui/ui/dist/`, while Go embeds `internal/web/dist/`;
-building the frontend alone does not update the embedded assets. Inspect this
-wiring when changing UI delivery. Edit frontend source rather than generated
-bundles. Vite proxies `/api` and `/healthz` to the backend on port 8088.
+The npm project is in `ui/ui/`. Vite builds into `ui/ui/dist/`, and
+`make ui-build` copies that output to `internal/web/dist/`, which Go embeds;
+running `npm run build` alone does not update the embedded assets. Commit the
+regenerated `internal/web/dist/` with frontend changes. Edit frontend source
+rather than generated bundles. Vite proxies `/api` and `/healthz` to the backend on port 8088.
 
 ## Data and configuration
 
@@ -86,6 +87,16 @@ errors; expired credentials are reported and retried at the next tick.
 For CLI-only use, `refresh --lookback N` runs a one-shot refresh. Use a larger
 lookback, such as 30 days, for a one-time gap fill.
 
+Every refresh re-reads history and re-fetches threads over each channel's scan
+window: the larger of the lookback and the channel's `deep_scan_days` (set
+with `channel-config` or the `slack_set_deep_scan` MCP tool). Incremental
+history alone never revisits a parent archived before its first reply, so do
+not filter thread catch-up on the cached `reply_count`. `fetch-thread` and the
+`slack_fetch_thread` MCP tool backfill one thread by permalink. Slack API call
+spacing defaults to one second and is set by `SLACK_SEARCH_API_INTERVAL` or
+`api_min_interval` in `~/.slack-search/config.json`. See
+`docs/thread-sync.md`.
+
 ## Design constraints
 
 - Put API routes under `/api/`, serve static assets at `/`, and preserve the
@@ -95,8 +106,8 @@ lookback, such as 30 days, for a one-time gap fill.
 - Slack API calls use POST with the token in the form body, never an
   Authorization header. Enterprise credentials need an `xoxc-` token and all
   cookies from the copied cURL request.
-- Preserve the Slack client's minimum one-second spacing between API calls
-  and its rate-limit handling.
+- Preserve the Slack client's configurable minimum spacing between API calls
+  (default one second) and its rate-limit handling.
 - Keep MCP stdio output protocol-safe; send diagnostics to stderr.
 - Update `docs/go-feature-catalog.md` when a catalogued feature changes, and
   update usage documentation when commands or behavior change.

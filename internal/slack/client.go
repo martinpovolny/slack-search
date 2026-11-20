@@ -30,11 +30,17 @@ func (e *AuthError) Error() string {
 	return fmt.Sprintf("Slack credentials rejected (%s). Re-copy a fresh curl from Chrome DevTools and update .curl.", e.Code)
 }
 
+// DefaultMinInterval is the minimum spacing between Slack API calls used by
+// new clients. The CLI sets it from SLACK_SEARCH_API_INTERVAL or the
+// api_min_interval key in ~/.slack-search/config.json.
+var DefaultMinInterval = time.Second
+
 type Client struct {
-	token      string
-	baseURL    string
-	httpClient *http.Client
-	cookies    string
+	minInterval time.Duration
+	token       string
+	baseURL     string
+	httpClient  *http.Client
+	cookies     string
 
 	mu       sync.Mutex
 	lastCall time.Time
@@ -47,9 +53,10 @@ func NewClient(token, cookie, workspace, rawCookies string) *Client {
 	}
 
 	c := &Client{
-		token:      token,
-		baseURL:    fmt.Sprintf("https://%s/api", base),
-		httpClient: &http.Client{Timeout: 30 * time.Second},
+		minInterval: DefaultMinInterval,
+		token:       token,
+		baseURL:     fmt.Sprintf("https://%s/api", base),
+		httpClient:  &http.Client{Timeout: 30 * time.Second},
 	}
 
 	if rawCookies != "" {
@@ -65,8 +72,8 @@ func (c *Client) throttle() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	elapsed := time.Since(c.lastCall)
-	if elapsed < time.Second {
-		time.Sleep(time.Second - elapsed)
+	if elapsed < c.minInterval {
+		time.Sleep(c.minInterval - elapsed)
 	}
 	c.lastCall = time.Now()
 }
@@ -238,4 +245,21 @@ func (c *Client) FetchCanvas(quipID string) ([]byte, error) {
 	}
 
 	return body, nil
+}
+
+// MaxMinInterval bounds a configured API call spacing.
+const MaxMinInterval = time.Minute
+
+// ParseMinInterval parses a configured API call spacing such as "1s" or
+// "750ms". Zero disables client-side spacing; Slack's HTTP 429 Retry-After
+// handling still applies.
+func ParseMinInterval(value string) (time.Duration, error) {
+	d, err := time.ParseDuration(strings.TrimSpace(value))
+	if err != nil {
+		return 0, fmt.Errorf("invalid API interval %q: %w", value, err)
+	}
+	if d < 0 || d > MaxMinInterval {
+		return 0, fmt.Errorf("API interval %s must be between 0 and %s", d, MaxMinInterval)
+	}
+	return d, nil
 }

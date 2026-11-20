@@ -75,6 +75,14 @@ completion, and is skipped on later opens.
 slack-search refresh --curl-file ~/.slack-search/.curl --lookback 7
 ```
 
+Within the lookback window, refresh re-reads channel history and re-fetches
+every thread with replies, so late replies to recent parents are archived.
+For important channels, set a longer per-channel window with
+`slack-search channel-config --channel NAME --deep-scan-days 30`. To backfill a
+single thread, run `slack-search fetch-thread <permalink>`. See
+[thread replies](docs/thread-sync.md) for the cost, the remaining limit, and
+how to change the one-second spacing between Slack API calls.
+
 On macOS, a launchd plist is included for hourly background refresh — see `com.user.slack-refresh.plist`.
 
 ## AI Agent Integration
@@ -92,11 +100,17 @@ On macOS, a launchd plist is included for hourly background refresh — see `com
 
 Claude Code: `claude mcp add slack-search -- slack-search mcp`
 
-Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`, `slack_refresh_channel`
+Tools: `slack_grep`, `slack_sql`, `slack_thread`, `slack_channels`, `slack_schema`,
+`slack_bookmarks`, `slack_canvases`, `slack_refresh_channel`, `slack_fetch_thread`,
+`slack_set_deep_scan`
 
-`slack_refresh_channel` fetches the latest messages for one channel and then
-re-fetches its recent threads (seven days by default), so agents can repair a
-stale archive before searching it. It requires a valid `~/.slack-search/.curl`.
+`slack_refresh_channel` fetches the latest messages for one channel, then
+re-reads its history and re-fetches its threads over the scan window (seven
+days by default, or the channel's `deep_scan_days` when larger), so agents can
+repair a stale archive before searching it. `slack_fetch_thread` fetches one
+thread by permalink, or by channel plus ts, when a linked message is missing.
+Both require a valid `~/.slack-search/.curl`. See
+[thread replies](docs/thread-sync.md) for why replies can be missing.
 
 ### Skill file (alternative)
 
