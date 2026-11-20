@@ -1,11 +1,13 @@
 BINARY     := slack-search
 GO_PKG     := ./cmd/slack-search
-UI_DIR     := ./ui
+UI_DIR     := ./ui/ui
+EMBED_DIR  := ./internal/web/dist
+INSTALL_DIR ?= $(HOME)/bin
 COMMIT     := $(shell git rev-parse --short HEAD 2>/dev/null || echo "unknown")
 BUILD_TIME := $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 LDFLAGS    := -ldflags "-X main.commit=$(COMMIT) -X main.buildTime=$(BUILD_TIME)"
 
-.PHONY: all build ui-build run dev clean test
+.PHONY: all build ui-build install run dev clean test
 
 ## Build everything: frontend then Go binary
 all: ui-build build
@@ -14,9 +16,19 @@ all: ui-build build
 build:
 	go build $(LDFLAGS) -o bin/$(BINARY) $(GO_PKG)
 
-## Build the Vite frontend
+## Build the Vite frontend and copy it to the directory Go embeds
 ui-build:
 	cd $(UI_DIR) && npm ci && npm run build
+	rm -rf $(EMBED_DIR)
+	cp -R $(UI_DIR)/dist $(EMBED_DIR)
+
+## Install the Go binary into INSTALL_DIR (default ~/bin). The old file is
+## removed first: overwriting a running or signed binary in place on macOS
+## gets the new copy killed by the kernel's code-signing check.
+install: build
+	mkdir -p $(INSTALL_DIR)
+	rm -f $(INSTALL_DIR)/$(BINARY)
+	cp bin/$(BINARY) $(INSTALL_DIR)/$(BINARY)
 
 ## Run the compiled binary
 run: all
